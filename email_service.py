@@ -184,7 +184,7 @@ def generate_order_confirmation_email(order_data: Dict) -> str:
                             <td style="background-color: #f8fafc; padding: 32px; text-align: center; border-top: 1px solid #e2e8f0;">
                                 <p style="margin: 0 0 8px 0; color: #64748b; font-size: 14px;">Need help? Contact us</p>
                                 <p style="margin: 0; color: #2563eb; font-size: 14px; font-weight: 500;">support@laundry-express.co.uk</p>
-                                <p style="margin: 16px 0 0 0; color: #94a3b8; font-size: 12px;">© 2024 Laundry Express. All rights reserved.</p>
+                                <p style="margin: 16px 0 0 0; color: #94a3b8; font-size: 12px;">© 2024 Laundry Express.. All rights reserved.</p>
                             </td>
                         </tr>
                     </table>
