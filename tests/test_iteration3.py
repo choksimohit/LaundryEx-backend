@@ -18,7 +18,7 @@ BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 ADMIN_EMAIL = "support@laundry-express.co.uk"
 ADMIN_PASSWORD = "admin123"
 CUSTOMER_EMAIL = "customer@test.com"
-CUSTOMER_PASSWORD = "password123"
+CUSTOMER_PASSWORD = "password1234"
 
 
 class TestBackendHealth:
