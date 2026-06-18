@@ -17,6 +17,7 @@ from jose import JWTError, jwt
 import stripe
 import httpx
 from email_service import send_order_confirmation_email, send_status_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users
+from whatsapp_service import send_whatsapp_new_order, send_whatsapp_new_user
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -200,6 +201,11 @@ async def register(user_data: UserRegister):
         await send_admin_new_user_notification(user_data.name, user_data.email, user_data.phone or "")
     except Exception as e:
         logger.error(f"Failed to send admin new-user notification: {e}")
+
+    try:
+        send_whatsapp_new_user(user_data.name, user_data.email, user_data.phone or "")
+    except Exception as e:
+        logger.error(f"Failed to send WhatsApp new-user notification: {e}")
 
     token = create_access_token({"sub": user_id, "email": user_data.email, "role": "customer"})
     return {"token": token, "user": {"id": user_id, "email": user_data.email, "name": user_data.name, "role": "customer"}}
@@ -414,7 +420,12 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
         await send_admin_order_notification(order_doc)
     except Exception as e:
         print(f"Failed to send admin notification email: {e}")
-    
+
+    try:
+        send_whatsapp_new_order(order_doc)
+    except Exception as e:
+        print(f"Failed to send WhatsApp order notification: {e}")
+
     return {"order_id": order_id, "order_number": order_number, "status": "success"}
 
 @api_router.post("/payment/create-intent")
@@ -916,11 +927,11 @@ GOOGLE_PLACE_ID = os.environ.get("GOOGLE_PLACE_ID", "")
 
 @api_router.get("/reviews")
 async def get_google_reviews():
-    # Return cached reviews if fresh (< 24 hours old)
+    # Return cached reviews if fresh (< 1 hour old)
     cached = await db.cache.find_one({"key": "google_reviews"}, {"_id": 0})
     if cached:
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(cached["fetched_at"])).total_seconds()
-        if age < 86400:
+        if age < 3600:
             return {"reviews": cached["reviews"], "rating": cached.get("rating"), "total_ratings": cached.get("total_ratings"), "source": "cache"}
 
     if not GOOGLE_PLACES_API_KEY or not GOOGLE_PLACE_ID:
