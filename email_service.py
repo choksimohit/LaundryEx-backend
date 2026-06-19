@@ -607,6 +607,106 @@ async def send_review_request_to_all_users(users: list) -> dict:
     return {"sent": sent, "failed": failed}
 
 
+def generate_welcome_offer_email(user_name: str) -> str:
+    first_name = user_name.split()[0] if user_name else "there"
+    booking_link = "https://laundry-express.co.uk/products"
+    whatsapp_link = "https://wa.me/447777367076"
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+    <body style="margin:0; padding:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; background-color:#f8fafc;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc; padding:40px 20px;">
+            <tr><td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 4px 6px rgba(0,0,0,0.05);">
+                    <tr>
+                        <td style="background:linear-gradient(135deg,#1e40af 0%,#2563eb 100%); padding:40px; text-align:center;">
+                            <div style="font-size:48px; margin-bottom:12px;">🎁</div>
+                            <h1 style="margin:0; color:#ffffff; font-size:28px; font-weight:700;">Still thinking about it?</h1>
+                            <p style="margin:12px 0 0 0; color:#bfdbfe; font-size:15px;">Here's 10% off to get you started</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:40px;">
+                            <p style="font-size:16px; color:#334155; margin:0 0 16px;">Hi {first_name},</p>
+                            <p style="font-size:15px; color:#64748b; line-height:1.7; margin:0 0 16px;">
+                                We noticed you recently visited <strong style="color:#1e293b;">Laundry Express Colchester</strong> but haven't placed your first order yet — and we completely understand, trying something new can take a moment!
+                            </p>
+                            <p style="font-size:15px; color:#64748b; line-height:1.7; margin:0 0 32px;">
+                                We're still here waiting for you, and to make it even easier we'd like to offer you <strong style="color:#1e293b;">10% off your very first order</strong>. Just use the code below at checkout and we'll take care of everything — collection from your door, washed, dried, folded, and delivered back to you.
+                            </p>
+
+                            <div style="background:#eff6ff; border:2px dashed #2563eb; border-radius:12px; padding:24px; text-align:center; margin-bottom:32px;">
+                                <p style="margin:0 0 8px; color:#64748b; font-size:14px;">Your exclusive welcome code</p>
+                                <p style="margin:0; color:#1e40af; font-size:32px; font-weight:800; letter-spacing:4px;">WELCOME10</p>
+                                <p style="margin:8px 0 0; color:#94a3b8; font-size:13px;">10% off your first order · no minimum spend</p>
+                            </div>
+
+                            <div style="text-align:center; margin-bottom:32px;">
+                                <a href="{booking_link}" style="display:inline-block; background:#2563eb; color:#ffffff; text-decoration:none; padding:16px 40px; border-radius:50px; font-weight:700; font-size:16px; letter-spacing:0.3px;">
+                                    Book My First Collection
+                                </a>
+                            </div>
+
+                            <div style="background-color:#f1f5f9; border-radius:12px; padding:20px; margin-bottom:24px;">
+                                <p style="margin:0 0 8px; color:#334155; font-size:14px; font-weight:600;">How it works:</p>
+                                <p style="margin:0; color:#64748b; font-size:14px; line-height:1.8;">
+                                    1. Browse our services and add items to your basket<br>
+                                    2. Enter <strong>WELCOME10</strong> at checkout<br>
+                                    3. Choose your pickup &amp; delivery time<br>
+                                    4. We collect, clean, and deliver back to your door 🧺
+                                </p>
+                            </div>
+
+                            <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:12px; padding:20px; margin-bottom:32px; text-align:center;">
+                                <p style="margin:0 0 6px; color:#166534; font-size:14px; font-weight:600;">💬 Got a question before you order?</p>
+                                <p style="margin:0 0 14px; color:#4ade80; font-size:13px; color:#15803d; line-height:1.6;">
+                                    No problem at all! Whether it's about our services, delivery areas, or anything else — just message us directly on WhatsApp and we'll get back to you straight away.
+                                </p>
+                                <a href="{whatsapp_link}" style="display:inline-block; background:#25d366; color:#ffffff; text-decoration:none; padding:12px 28px; border-radius:50px; font-weight:700; font-size:14px;">
+                                    💬 Chat with us on WhatsApp
+                                </a>
+                            </div>
+
+                            <p style="font-size:13px; color:#94a3b8; text-align:center; margin:0; border-top:1px solid #e2e8f0; padding-top:20px;">
+                                Or email us at <a href="mailto:support@laundry-express.co.uk" style="color:#2563eb;">support@laundry-express.co.uk</a> — we're always happy to help.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background-color:#1e3a5f; padding:24px; text-align:center;">
+                            <p style="margin:0 0 4px; color:#bfdbfe; font-size:14px; font-weight:600;">Laundry Express Colchester</p>
+                            <p style="margin:0; color:#93c5fd; font-size:13px;">Doorstep laundry &amp; dry cleaning · laundry-express.co.uk</p>
+                        </td>
+                    </tr>
+                </table>
+            </td></tr>
+        </table>
+    </body>
+    </html>
+    """
+
+
+async def send_welcome_offer_to_users(users: list) -> dict:
+    sent, failed = 0, 0
+    for user in users:
+        if not user.get("email"):
+            continue
+        try:
+            html = generate_welcome_offer_email(user.get("name", ""))
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [user["email"]],
+                "subject": "🎁 Here's 10% off your first order — WELCOME10",
+                "html": html,
+            }
+            await asyncio.to_thread(resend.Emails.send, params)
+            sent += 1
+        except Exception as e:
+            logger.error(f"Failed to send welcome offer to {user.get('email')}: {e}")
+            failed += 1
+    return {"sent": sent, "failed": failed}
+
 def send_password_reset_email(to_email: str, name: str, reset_link: str):
     html = f"""
     <!DOCTYPE html>
