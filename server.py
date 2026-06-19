@@ -948,8 +948,13 @@ async def get_google_reviews():
             resp.raise_for_status()
             data = resp.json()
 
+        raw_reviews = sorted(
+            data.get("reviews", []),
+            key=lambda r: r.get("publishTime", ""),
+            reverse=True
+        )
         reviews = []
-        for r in data.get("reviews", []):
+        for r in raw_reviews:
             reviews.append({
                 "author": r.get("authorAttribution", {}).get("displayName", "Anonymous"),
                 "author_photo": r.get("authorAttribution", {}).get("photoUri", ""),
