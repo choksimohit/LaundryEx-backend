@@ -638,8 +638,8 @@ def generate_welcome_offer_email(user_name: str) -> str:
 
                             <div style="background:#eff6ff; border:2px dashed #2563eb; border-radius:12px; padding:24px; text-align:center; margin-bottom:32px;">
                                 <p style="margin:0 0 8px; color:#64748b; font-size:14px;">Your exclusive welcome code</p>
-                                <p style="margin:0; color:#1e40af; font-size:32px; font-weight:800; letter-spacing:4px;">WELCOME10</p>
-                                <p style="margin:8px 0 0; color:#94a3b8; font-size:13px;">10% off your first order · no minimum spend</p>
+                                <p style="margin:0; color:#1e40af; font-size:32px; font-weight:800; letter-spacing:4px;">WELCOME20</p>
+                                <p style="margin:8px 0 0; color:#94a3b8; font-size:13px;">20% off your first order · no minimum spend</p>
                             </div>
 
                             <div style="text-align:center; margin-bottom:32px;">
@@ -652,7 +652,7 @@ def generate_welcome_offer_email(user_name: str) -> str:
                                 <p style="margin:0 0 8px; color:#334155; font-size:14px; font-weight:600;">How it works:</p>
                                 <p style="margin:0; color:#64748b; font-size:14px; line-height:1.8;">
                                     1. Browse our services and add items to your basket<br>
-                                    2. Enter <strong>WELCOME10</strong> at checkout<br>
+                                    2. Enter <strong>WELCOME20</strong> at checkout<br>
                                     3. Choose your pickup &amp; delivery time<br>
                                     4. We collect, clean, and deliver back to your door 🧺
                                 </p>
@@ -697,7 +697,7 @@ async def send_welcome_offer_to_users(users: list) -> dict:
             params = {
                 "from": SENDER_EMAIL,
                 "to": [user["email"]],
-                "subject": "🎁 Here's 10% off your first order — WELCOME10",
+                "subject": "🎁 Here's 20% off your first order — WELCOME20",
                 "html": html,
             }
             await asyncio.to_thread(resend.Emails.send, params)
