@@ -35,6 +35,13 @@ security = HTTPBearer()
 
 app = FastAPI()
 app.add_middleware(GZipMiddleware, minimum_size=500)
+
+@app.on_event("startup")
+async def run_migrations():
+    await db.promo_codes.update_many(
+        {"code": {"$in": ["WELCOME10", "WELCOME20"]}, "group": {"$exists": False}},
+        {"$set": {"group": "welcome_offer"}}
+    )
 api_router = APIRouter(prefix="/api")
 
 class UserRegister(BaseModel):
@@ -379,10 +386,16 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
         promo_doc = await db.promo_codes.find_one({"code": promo_code, "active": True})
         if promo_doc:
             max_uses = promo_doc.get("max_uses")
-            already_used = current_user["id"] in promo_doc.get("used_by", [])
+            uid = current_user["id"]
+            already_used = uid in promo_doc.get("used_by", [])
             one_use = promo_doc.get("one_use_per_user", True)
+            group = promo_doc.get("group")
+            group_used = False
+            if one_use and group and not already_used:
+                group_doc = await db.promo_codes.find_one({"group": group, "used_by": uid, "code": {"$ne": promo_code}}, {"_id": 0})
+                group_used = group_doc is not None
             global_limit_ok = max_uses is None or promo_doc.get("uses_count", 0) < max_uses
-            if global_limit_ok and not (one_use and already_used):
+            if global_limit_ok and not (one_use and (already_used or group_used)):
                 discount = round(items_total * promo_doc["discount_percent"] / 100, 2)
                 await db.promo_codes.update_one(
                     {"code": promo_code},
@@ -1187,8 +1200,15 @@ async def validate_promo_code(data: dict, current_user: dict = Depends(get_curre
     max_uses = promo.get("max_uses")
     if max_uses is not None and promo.get("uses_count", 0) >= max_uses:
         raise HTTPException(status_code=400, detail="Promo code has reached its usage limit")
-    if promo.get("one_use_per_user", True) and current_user["id"] in promo.get("used_by", []):
-        raise HTTPException(status_code=400, detail="You have already used this promo code")
+    if promo.get("one_use_per_user", True):
+        uid = current_user["id"]
+        if uid in promo.get("used_by", []):
+            raise HTTPException(status_code=400, detail="You have already used this promo code")
+        group = promo.get("group")
+        if group:
+            group_used = await db.promo_codes.find_one({"group": group, "used_by": uid}, {"_id": 0, "code": 1})
+            if group_used:
+                raise HTTPException(status_code=400, detail=f"You have already used a welcome offer ({group_used['code']})")
     return {"code": promo["code"], "discount_percent": promo["discount_percent"], "description": promo.get("description", "")}
 
 
@@ -1199,6 +1219,7 @@ class PromoCodeCreate(BaseModel):
     max_uses: Optional[int] = None
     active: bool = True
     one_use_per_user: bool = True
+    group: Optional[str] = None
 
 
 @api_router.get("/admin/promo-codes")
@@ -1262,6 +1283,7 @@ async def create_promo_code(data: PromoCodeCreate, admin: dict = Depends(get_adm
         "used_by": [],
         "active": data.active,
         "one_use_per_user": data.one_use_per_user,
+        "group": data.group,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.promo_codes.insert_one(doc)
@@ -1271,7 +1293,7 @@ async def create_promo_code(data: PromoCodeCreate, admin: dict = Depends(get_adm
 
 @api_router.patch("/admin/promo-codes/{code_id}")
 async def update_promo_code(code_id: str, data: dict, admin: dict = Depends(get_admin_user)):
-    allowed = {k: v for k, v in data.items() if k in ("active", "discount_percent", "description", "max_uses")}
+    allowed = {k: v for k, v in data.items() if k in ("active", "discount_percent", "description", "max_uses", "group", "one_use_per_user")}
     if not allowed:
         raise HTTPException(status_code=400, detail="No valid fields to update")
     result = await db.promo_codes.update_one({"id": code_id}, {"$set": allowed})
