@@ -375,8 +375,13 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
     items_total = sum(item.price * item.quantity for item in order_data.items)
     discount = 0
     promo_code = order_data.promo_code.strip().upper() if order_data.promo_code else ""
-    if promo_code == "WELCOME10":
-        discount = round(items_total * 0.10, 2)
+    if promo_code:
+        promo_doc = await db.promo_codes.find_one({"code": promo_code, "active": True})
+        if promo_doc:
+            max_uses = promo_doc.get("max_uses")
+            if max_uses is None or promo_doc.get("uses_count", 0) < max_uses:
+                discount = round(items_total * promo_doc["discount_percent"] / 100, 2)
+                await db.promo_codes.update_one({"code": promo_code}, {"$inc": {"uses_count": 1}})
     after_discount = items_total - discount
     delivery_charge = 0 if after_discount >= 30 else 4.45
     total_with_delivery = after_discount + delivery_charge
@@ -1164,6 +1169,73 @@ async def delete_blog_post(post_id: str, admin: dict = Depends(get_admin_user)):
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Post not found")
     return {"status": "success"}
+
+@api_router.post("/promo/validate")
+async def validate_promo_code(data: dict):
+    code = (data.get("code") or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="No code provided")
+    promo = await db.promo_codes.find_one({"code": code, "active": True}, {"_id": 0})
+    if not promo:
+        raise HTTPException(status_code=404, detail="Invalid or inactive promo code")
+    max_uses = promo.get("max_uses")
+    if max_uses is not None and promo.get("uses_count", 0) >= max_uses:
+        raise HTTPException(status_code=400, detail="Promo code has reached its usage limit")
+    return {"code": promo["code"], "discount_percent": promo["discount_percent"], "description": promo.get("description", "")}
+
+
+class PromoCodeCreate(BaseModel):
+    code: str
+    discount_percent: float
+    description: Optional[str] = ""
+    max_uses: Optional[int] = None
+    active: bool = True
+
+
+@api_router.get("/admin/promo-codes")
+async def get_promo_codes(admin: dict = Depends(get_admin_user)):
+    codes = await db.promo_codes.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return codes
+
+
+@api_router.post("/admin/promo-codes")
+async def create_promo_code(data: PromoCodeCreate, admin: dict = Depends(get_admin_user)):
+    code = data.code.strip().upper()
+    existing = await db.promo_codes.find_one({"code": code})
+    if existing:
+        raise HTTPException(status_code=400, detail="Promo code already exists")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "code": code,
+        "discount_percent": data.discount_percent,
+        "description": data.description,
+        "max_uses": data.max_uses,
+        "uses_count": 0,
+        "active": data.active,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.promo_codes.insert_one(doc)
+    return {"status": "success", "code": doc}
+
+
+@api_router.patch("/admin/promo-codes/{code_id}")
+async def update_promo_code(code_id: str, data: dict, admin: dict = Depends(get_admin_user)):
+    allowed = {k: v for k, v in data.items() if k in ("active", "discount_percent", "description", "max_uses")}
+    if not allowed:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    result = await db.promo_codes.update_one({"id": code_id}, {"$set": allowed})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Promo code not found")
+    return {"status": "success"}
+
+
+@api_router.delete("/admin/promo-codes/{code_id}")
+async def delete_promo_code(code_id: str, admin: dict = Depends(get_admin_user)):
+    result = await db.promo_codes.delete_one({"id": code_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Promo code not found")
+    return {"status": "success"}
+
 
 app.include_router(api_router)
 
