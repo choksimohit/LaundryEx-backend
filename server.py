@@ -1254,6 +1254,7 @@ async def create_promo_code(data: PromoCodeCreate, admin: dict = Depends(get_adm
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.promo_codes.insert_one(doc)
+    doc.pop("_id", None)
     return {"status": "success", "code": doc}
 
 
