@@ -623,7 +623,7 @@ def generate_welcome_offer_email(user_name: str) -> str:
                         <td style="background:linear-gradient(135deg,#1e40af 0%,#2563eb 100%); padding:40px; text-align:center;">
                             <div style="font-size:48px; margin-bottom:12px;">🎁</div>
                             <h1 style="margin:0; color:#ffffff; font-size:28px; font-weight:700;">Still thinking about it?</h1>
-                            <p style="margin:12px 0 0 0; color:#bfdbfe; font-size:15px;">Here's 10% off to get you started</p>
+                            <p style="margin:12px 0 0 0; color:#bfdbfe; font-size:15px;">Here's 20% off to get you started</p>
                         </td>
                     </tr>
                     <tr>
@@ -633,7 +633,7 @@ def generate_welcome_offer_email(user_name: str) -> str:
                                 We noticed you recently visited <strong style="color:#1e293b;">Laundry Express Colchester</strong> but haven't placed your first order yet — and we completely understand, trying something new can take a moment!
                             </p>
                             <p style="font-size:15px; color:#64748b; line-height:1.7; margin:0 0 32px;">
-                                We're still here waiting for you, and to make it even easier we'd like to offer you <strong style="color:#1e293b;">10% off your very first order</strong>. Just use the code below at checkout and we'll take care of everything — collection from your door, washed, dried, folded, and delivered back to you.
+                                We're still here waiting for you, and to make it even easier we'd like to offer you <strong style="color:#1e293b;">20% off your very first order</strong>. Just use the code below at checkout and we'll take care of everything — collection from your door, washed, dried, folded, and delivered back to you.
                             </p>
 
                             <div style="background:#eff6ff; border:2px dashed #2563eb; border-radius:12px; padding:24px; text-align:center; margin-bottom:32px;">
