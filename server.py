@@ -1198,6 +1198,45 @@ async def get_promo_codes(admin: dict = Depends(get_admin_user)):
     return codes
 
 
+@api_router.get("/admin/promo-codes/stats")
+async def get_promo_stats(admin: dict = Depends(get_admin_user)):
+    pipeline = [
+        {"$match": {"promo_code": {"$ne": ""}}},
+        {"$group": {
+            "_id": "$promo_code",
+            "order_count": {"$sum": 1},
+            "total_revenue": {"$sum": "$total_amount"},
+            "total_discount": {"$sum": "$discount_amount"},
+            "first_used": {"$min": "$created_at"},
+            "last_used": {"$max": "$created_at"},
+            "orders": {"$push": {
+                "order_number": "$order_number",
+                "user_name": "$user_name",
+                "user_email": "$user_email",
+                "total_amount": "$total_amount",
+                "discount_amount": "$discount_amount",
+                "created_at": "$created_at",
+                "status": "$status",
+            }}
+        }}
+    ]
+    results = await db.orders.aggregate(pipeline).to_list(1000)
+    stats_by_code = {r["_id"]: r for r in results}
+
+    total_promo_orders = sum(r["order_count"] for r in results)
+    total_discount_given = round(sum(r["total_discount"] for r in results), 2)
+    best_code = max(results, key=lambda r: r["order_count"])["_id"] if results else None
+
+    return {
+        "by_code": {k: {**v, "_id": None} for k, v in stats_by_code.items()},
+        "summary": {
+            "total_promo_orders": total_promo_orders,
+            "total_discount_given": total_discount_given,
+            "best_code": best_code,
+        }
+    }
+
+
 @api_router.post("/admin/promo-codes")
 async def create_promo_code(data: PromoCodeCreate, admin: dict = Depends(get_admin_user)):
     code = data.code.strip().upper()
