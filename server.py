@@ -379,9 +379,15 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
         promo_doc = await db.promo_codes.find_one({"code": promo_code, "active": True})
         if promo_doc:
             max_uses = promo_doc.get("max_uses")
-            if max_uses is None or promo_doc.get("uses_count", 0) < max_uses:
+            already_used = current_user["id"] in promo_doc.get("used_by", [])
+            one_use = promo_doc.get("one_use_per_user", True)
+            global_limit_ok = max_uses is None or promo_doc.get("uses_count", 0) < max_uses
+            if global_limit_ok and not (one_use and already_used):
                 discount = round(items_total * promo_doc["discount_percent"] / 100, 2)
-                await db.promo_codes.update_one({"code": promo_code}, {"$inc": {"uses_count": 1}})
+                await db.promo_codes.update_one(
+                    {"code": promo_code},
+                    {"$inc": {"uses_count": 1}, "$addToSet": {"used_by": current_user["id"]}}
+                )
     after_discount = items_total - discount
     delivery_charge = 0 if after_discount >= 30 else 4.45
     total_with_delivery = after_discount + delivery_charge
@@ -1171,7 +1177,7 @@ async def delete_blog_post(post_id: str, admin: dict = Depends(get_admin_user)):
     return {"status": "success"}
 
 @api_router.post("/promo/validate")
-async def validate_promo_code(data: dict):
+async def validate_promo_code(data: dict, current_user: dict = Depends(get_current_user)):
     code = (data.get("code") or "").strip().upper()
     if not code:
         raise HTTPException(status_code=400, detail="No code provided")
@@ -1181,6 +1187,8 @@ async def validate_promo_code(data: dict):
     max_uses = promo.get("max_uses")
     if max_uses is not None and promo.get("uses_count", 0) >= max_uses:
         raise HTTPException(status_code=400, detail="Promo code has reached its usage limit")
+    if promo.get("one_use_per_user", True) and current_user["id"] in promo.get("used_by", []):
+        raise HTTPException(status_code=400, detail="You have already used this promo code")
     return {"code": promo["code"], "discount_percent": promo["discount_percent"], "description": promo.get("description", "")}
 
 
@@ -1190,6 +1198,7 @@ class PromoCodeCreate(BaseModel):
     description: Optional[str] = ""
     max_uses: Optional[int] = None
     active: bool = True
+    one_use_per_user: bool = True
 
 
 @api_router.get("/admin/promo-codes")
@@ -1250,7 +1259,9 @@ async def create_promo_code(data: PromoCodeCreate, admin: dict = Depends(get_adm
         "description": data.description,
         "max_uses": data.max_uses,
         "uses_count": 0,
+        "used_by": [],
         "active": data.active,
+        "one_use_per_user": data.one_use_per_user,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.promo_codes.insert_one(doc)
