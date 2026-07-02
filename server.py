@@ -1078,15 +1078,15 @@ async def get_google_reviews():
 
 @api_router.get("/sitemap-xml")
 async def sitemap_xml():
-    base_url = os.environ.get("BASE_URL", "https://laundry-express.co.uk")
+    base_url = os.environ.get("BASE_URL", "https://www.laundry-express.co.uk")
     pages = [
         {"loc": "/", "priority": "1.0", "changefreq": "weekly"},
         {"loc": "/services", "priority": "0.9", "changefreq": "weekly"},
         {"loc": "/order", "priority": "0.9", "changefreq": "weekly"},
         {"loc": "/blog", "priority": "0.8", "changefreq": "weekly"},
-        {"loc": "/login", "priority": "0.5", "changefreq": "monthly"},
-        {"loc": "/register", "priority": "0.5", "changefreq": "monthly"},
-        {"loc": "/sitemap", "priority": "0.3", "changefreq": "monthly"},
+        {"loc": "/contact", "priority": "0.7", "changefreq": "monthly"},
+        {"loc": "/terms", "priority": "0.3", "changefreq": "yearly"},
+        {"loc": "/privacy", "priority": "0.3", "changefreq": "yearly"},
     ]
     posts = await db.blog_posts.find(
         {"status": "published"}, {"_id": 0, "slug": 1, "updated_at": 1, "created_at": 1}
