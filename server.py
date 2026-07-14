@@ -11,6 +11,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional
 import uuid
+import secrets
 from datetime import datetime, timezone, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -165,7 +166,7 @@ class ManualOrderItem(BaseModel):
 class ManualOrderCreate(BaseModel):
     customer_name: str
     customer_phone: str
-    customer_email: Optional[str] = ""
+    customer_email: str
     address: str
     pin_code: str
     items: List[ManualOrderItem]
@@ -484,12 +485,55 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
     delivery_charge = 0 if items_total >= 30 else 4.45
     total_amount = round(items_total + delivery_charge, 2)
 
+    # Auto-create or find user account for this WhatsApp customer
+    customer_email = order_data.customer_email.strip().lower()
+
+    existing_user = await db.users.find_one(
+        {"$or": [{"phone": order_data.customer_phone}, {"email": customer_email}]},
+        {"_id": 0}
+    )
+    account_created = False
+    reset_link = None
+
+    if existing_user:
+        linked_user_id = existing_user["id"]
+    else:
+        linked_user_id = str(uuid.uuid4())
+        temp_password = secrets.token_hex(16)
+        new_user = {
+            "id": linked_user_id,
+            "email": customer_email,
+            "password": hash_password(temp_password),
+            "name": order_data.customer_name,
+            "phone": order_data.customer_phone,
+            "role": "customer",
+            "source": "whatsapp",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.users.insert_one(new_user)
+        account_created = True
+
+        # Generate 72h password-set token so customer can activate their account
+        reset_token = jwt.encode(
+            {"sub": linked_user_id, "email": customer_email, "type": "reset",
+             "exp": datetime.now(timezone.utc) + timedelta(hours=72)},
+            JWT_SECRET, algorithm=JWT_ALGORITHM
+        )
+        await db.password_resets.update_one(
+            {"user_id": linked_user_id},
+            {"$set": {"user_id": linked_user_id, "token": reset_token,
+                      "created_at": datetime.now(timezone.utc).isoformat(), "used": False}},
+            upsert=True
+        )
+        frontend_url = os.environ.get("FRONTEND_URL", "https://www.laundry-express.co.uk")
+        reset_link = f"{frontend_url}/reset-password?token={reset_token}"
+
     order_doc = {
         "id": order_id,
         "order_number": order_number,
-        "user_id": None,
+        "user_id": linked_user_id,
         "user_name": order_data.customer_name,
-        "user_email": order_data.customer_email or "",
+        "user_email": customer_email,
         "phone": order_data.customer_phone,
         "items": [item.model_dump() for item in order_data.items],
         "pickup_date": order_data.pickup_date,
@@ -514,15 +558,26 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
     }
     await db.orders.insert_one(order_doc)
 
-    # Notify customer on WhatsApp
+    # WhatsApp: order confirmation + account setup link if new account
     try:
-        msg = (
-            f"Hi {order_data.customer_name}, your Laundry Express order #{order_number} has been placed!\n\n"
-            f"Pickup: {order_data.pickup_date} ({order_data.pickup_time})\n"
-            f"Delivery: {order_data.delivery_date} ({order_data.delivery_time})\n"
-            f"Total: £{total_amount:.2f} (COD)\n\n"
-            f"We'll keep you updated as your order progresses. Thank you! 🧺"
-        )
+        if account_created and reset_link:
+            msg = (
+                f"Hi {order_data.customer_name}, your Laundry Express order #{order_number} has been placed! 🧺\n\n"
+                f"Pickup: {order_data.pickup_date} ({order_data.pickup_time})\n"
+                f"Delivery: {order_data.delivery_date} ({order_data.delivery_time})\n"
+                f"Total: £{total_amount:.2f} (Cash on Delivery)\n\n"
+                f"We've also created an online account for you so you can book and track future orders yourself.\n"
+                f"Set your password here (link valid for 72 hours):\n{reset_link}\n\n"
+                f"We'll keep you updated as your order progresses. Thank you!"
+            )
+        else:
+            msg = (
+                f"Hi {order_data.customer_name}, your Laundry Express order #{order_number} has been placed!\n\n"
+                f"Pickup: {order_data.pickup_date} ({order_data.pickup_time})\n"
+                f"Delivery: {order_data.delivery_date} ({order_data.delivery_time})\n"
+                f"Total: £{total_amount:.2f} (Cash on Delivery)\n\n"
+                f"We'll keep you updated as your order progresses. Thank you! 🧺"
+            )
         send_whatsapp_to_customer(order_data.customer_phone, msg)
     except Exception as e:
         print(f"Failed to send WhatsApp confirmation to customer: {e}")
@@ -533,7 +588,7 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
     except Exception as e:
         print(f"Failed to send admin notification email: {e}")
 
-    return {"order_id": order_id, "order_number": order_number, "status": "success"}
+    return {"order_id": order_id, "order_number": order_number, "status": "success", "account_created": account_created}
 
 @api_router.post("/payment/create-intent")
 async def create_payment_intent(data: dict, current_user: dict = Depends(get_current_user)):
