@@ -17,7 +17,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import stripe
 import httpx
-from email_service import send_order_confirmation_email, send_status_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_welcome_offer_to_users
+from email_service import send_order_confirmation_email, send_status_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_welcome_offer_to_users, send_password_reset_email
 from whatsapp_service import send_whatsapp_new_order, send_whatsapp_new_user, send_whatsapp_to_customer
 
 ROOT_DIR = Path(__file__).parent
@@ -527,6 +527,11 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
         )
         frontend_url = os.environ.get("FRONTEND_URL", "https://www.laundry-express.co.uk")
         reset_link = f"{frontend_url}/reset-password?token={reset_token}"
+
+        try:
+            send_password_reset_email(customer_email, order_data.customer_name, reset_link)
+        except Exception as e:
+            print(f"Failed to send password setup email: {e}")
 
     order_doc = {
         "id": order_id,
