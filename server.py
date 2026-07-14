@@ -17,7 +17,7 @@ from jose import JWTError, jwt
 import stripe
 import httpx
 from email_service import send_order_confirmation_email, send_status_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_welcome_offer_to_users
-from whatsapp_service import send_whatsapp_new_order, send_whatsapp_new_user
+from whatsapp_service import send_whatsapp_new_order, send_whatsapp_new_user, send_whatsapp_to_customer
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -154,6 +154,27 @@ class ProductCreate(BaseModel):
 
 class OrderStatusUpdate(BaseModel):
     status: str
+
+class ManualOrderItem(BaseModel):
+    product_name: str
+    quantity: int
+    price: float
+    category: Optional[str] = ""
+    subcategory: Optional[str] = ""
+
+class ManualOrderCreate(BaseModel):
+    customer_name: str
+    customer_phone: str
+    customer_email: Optional[str] = ""
+    address: str
+    pin_code: str
+    items: List[ManualOrderItem]
+    pickup_date: str
+    pickup_time: str
+    delivery_date: str
+    delivery_time: str
+    payment_method: Optional[str] = "cod"
+    customer_note: Optional[str] = ""
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -452,6 +473,68 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
 
     return {"order_id": order_id, "order_number": order_number, "status": "success"}
 
+@api_router.post("/admin/orders")
+async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depends(get_admin_user)):
+    """Create an order on behalf of a WhatsApp (or walk-in) customer who has no account."""
+    order_id = str(uuid.uuid4())
+    last_order = await db.orders.find({}, {"_id": 0, "order_number": 1}).sort("order_number", -1).limit(1).to_list(1)
+    order_number = (last_order[0]["order_number"] + 1) if last_order and "order_number" in last_order[0] else 100000
+
+    items_total = sum(item.price * item.quantity for item in order_data.items)
+    delivery_charge = 0 if items_total >= 30 else 4.45
+    total_amount = round(items_total + delivery_charge, 2)
+
+    order_doc = {
+        "id": order_id,
+        "order_number": order_number,
+        "user_id": None,
+        "user_name": order_data.customer_name,
+        "user_email": order_data.customer_email or "",
+        "phone": order_data.customer_phone,
+        "items": [item.model_dump() for item in order_data.items],
+        "pickup_date": order_data.pickup_date,
+        "pickup_time": order_data.pickup_time,
+        "pickup_instruction": "",
+        "delivery_date": order_data.delivery_date,
+        "delivery_time": order_data.delivery_time,
+        "delivery_instruction": "",
+        "address": order_data.address,
+        "pin_code": order_data.pin_code,
+        "payment_method": order_data.payment_method,
+        "payment_status": "cod",
+        "items_total": items_total,
+        "promo_code": "",
+        "discount_amount": 0,
+        "delivery_charge": delivery_charge,
+        "total_amount": total_amount,
+        "customer_note": order_data.customer_note or "",
+        "status": "pending",
+        "source": "manual",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.orders.insert_one(order_doc)
+
+    # Notify customer on WhatsApp
+    try:
+        msg = (
+            f"Hi {order_data.customer_name}, your Laundry Express order #{order_number} has been placed!\n\n"
+            f"Pickup: {order_data.pickup_date} ({order_data.pickup_time})\n"
+            f"Delivery: {order_data.delivery_date} ({order_data.delivery_time})\n"
+            f"Total: £{total_amount:.2f} (COD)\n\n"
+            f"We'll keep you updated as your order progresses. Thank you! 🧺"
+        )
+        send_whatsapp_to_customer(order_data.customer_phone, msg)
+    except Exception as e:
+        print(f"Failed to send WhatsApp confirmation to customer: {e}")
+
+    # Notify admin
+    try:
+        await send_admin_order_notification(order_doc)
+    except Exception as e:
+        print(f"Failed to send admin notification email: {e}")
+
+    return {"order_id": order_id, "order_number": order_number, "status": "success"}
+
 @api_router.post("/payment/create-intent")
 async def create_payment_intent(data: dict, current_user: dict = Depends(get_current_user)):
     try:
@@ -497,12 +580,25 @@ async def update_order_status(order_id: str, data: OrderStatusUpdate, admin: dic
     # Update order dict with new status for email
     order["status"] = data.status
     
-    # Send status update email to customer
-    try:
-        await send_status_update_email(order, data.status, order["user_email"])
-    except Exception as e:
-        print(f"Failed to send status update email: {e}")
-    
+    # Send status update email to customer (regular orders)
+    if order.get("user_email"):
+        try:
+            await send_status_update_email(order, data.status, order["user_email"])
+        except Exception as e:
+            print(f"Failed to send status update email: {e}")
+
+    # Send WhatsApp status update for manual (WhatsApp) orders
+    if order.get("phone"):
+        try:
+            status_label = data.status.replace("_", " ").title()
+            msg = (
+                f"Hi {order.get('user_name', 'there')}, your Laundry Express order #{order.get('order_number')} "
+                f"has been updated.\n\nNew status: *{status_label}*\n\nThank you for choosing Laundry Express! 🧺"
+            )
+            send_whatsapp_to_customer(order["phone"], msg)
+        except Exception as e:
+            print(f"Failed to send WhatsApp status update: {e}")
+
     return {"status": "success"}
 
 @api_router.get("/admin/businesses")

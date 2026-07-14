@@ -50,6 +50,23 @@ def send_whatsapp_new_order(order_doc: dict):
     logger.info(f"WhatsApp order notification sent for order #{order_doc.get('order_number')}")
 
 
+def send_whatsapp_to_customer(phone: str, message: str):
+    """Send a WhatsApp message to a customer's number (e.g. order confirmation or status update)."""
+    if not phone:
+        return
+    # Normalise: strip spaces/dashes, ensure starts with country code
+    phone = phone.strip().replace(" ", "").replace("-", "")
+    if not phone.startswith("+"):
+        phone = "+44" + phone.lstrip("0")
+    client = _get_client()
+    client.messages.create(
+        from_=TWILIO_WHATSAPP_FROM,
+        to=f"whatsapp:{phone}",
+        body=message
+    )
+    logger.info(f"WhatsApp message sent to customer {phone}")
+
+
 def send_whatsapp_new_user(name: str, email: str, phone: str):
     if not TWILIO_WHATSAPP_TO:
         logger.warning("TWILIO_WHATSAPP_TO not set, skipping WhatsApp notification")
