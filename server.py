@@ -1180,6 +1180,20 @@ GOOGLE_PLACE_ID = os.environ.get("GOOGLE_PLACE_ID", "")
 
 
 
+@api_router.post("/leads/out-of-area")
+async def capture_out_of_area_lead(data: dict):
+    email = (data.get("email") or "").strip().lower()
+    postcode = (data.get("postcode") or "").strip().upper()
+    if not email or not postcode:
+        raise HTTPException(status_code=400, detail="Email and postcode are required")
+    await db.leads.update_one(
+        {"email": email, "postcode": postcode},
+        {"$set": {"email": email, "postcode": postcode, "updated_at": datetime.now(timezone.utc).isoformat()},
+         "$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True
+    )
+    return {"status": "success"}
+
 @api_router.get("/reviews")
 async def get_google_reviews():
     # Return cached reviews if fresh (< 1 hour old)
