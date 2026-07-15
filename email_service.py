@@ -750,7 +750,12 @@ def send_password_reset_email(to_email: str, name: str, reset_link: str):
         return {"status": "error", "message": str(e)}
 
 
-async def send_contact_enquiry_email(name: str, email: str, message: str):
+async def send_contact_enquiry_email(name: str, email: str, message: str, phone: str = ""):
+    phone_row = f"""
+            <tr>
+              <td style="padding: 8px 0; color: #64748b; font-size: 14px; border-top: 1px solid #e2e8f0;">Phone</td>
+              <td style="padding: 8px 0; border-top: 1px solid #e2e8f0;"><a href="tel:{phone}" style="color: #0d9488;">{phone}</a></td>
+            </tr>""" if phone else ""
     html = f"""
     <!DOCTYPE html>
     <html>
@@ -769,7 +774,7 @@ async def send_contact_enquiry_email(name: str, email: str, message: str):
             <tr>
               <td style="padding: 8px 0; color: #64748b; font-size: 14px; border-top: 1px solid #e2e8f0;">Email</td>
               <td style="padding: 8px 0; border-top: 1px solid #e2e8f0;"><a href="mailto:{email}" style="color: #2563eb;">{email}</a></td>
-            </tr>
+            </tr>{phone_row}
           </table>
           <div style="background: #f8fafc; border-radius: 12px; padding: 20px; border: 1px solid #e2e8f0;">
             <p style="color: #64748b; font-size: 12px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.05em;">Message</p>

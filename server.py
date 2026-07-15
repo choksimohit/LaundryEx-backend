@@ -1198,10 +1198,11 @@ async def capture_out_of_area_lead(data: dict):
 async def contact_enquiry(data: dict):
     name = (data.get("name") or "").strip()
     email = (data.get("email") or "").strip()
+    phone = (data.get("phone") or "").strip()
     message = (data.get("message") or "").strip()
     if not name or not email or not message:
         raise HTTPException(status_code=422, detail="name, email, and message are required")
-    await send_contact_enquiry_email(name, email, message)
+    await send_contact_enquiry_email(name, email, message, phone)
     return {"ok": True}
 
 
