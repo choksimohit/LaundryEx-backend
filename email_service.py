@@ -748,3 +748,52 @@ def send_password_reset_email(to_email: str, name: str, reset_link: str):
     except Exception as e:
         logger.error(f"Failed to send password reset email: {str(e)}")
         return {"status": "error", "message": str(e)}
+
+
+async def send_contact_enquiry_email(name: str, email: str, message: str):
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <body style="margin:0; padding:0; font-family: Arial, sans-serif; background-color: #f1f5f9;">
+      <div style="max-width: 560px; margin: 40px auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08);">
+        <div style="background: linear-gradient(135deg, #1e40af, #2563eb); padding: 32px; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Laundry Express</h1>
+          <p style="color: #bfdbfe; margin: 8px 0 0; font-size: 14px;">New Contact Enquiry</p>
+        </div>
+        <div style="padding: 32px;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+            <tr>
+              <td style="padding: 8px 0; color: #64748b; font-size: 14px; border-top: 1px solid #e2e8f0; width: 30%;">Name</td>
+              <td style="padding: 8px 0; color: #1e293b; font-weight: 600; border-top: 1px solid #e2e8f0;">{name}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #64748b; font-size: 14px; border-top: 1px solid #e2e8f0;">Email</td>
+              <td style="padding: 8px 0; border-top: 1px solid #e2e8f0;"><a href="mailto:{email}" style="color: #2563eb;">{email}</a></td>
+            </tr>
+          </table>
+          <div style="background: #f8fafc; border-radius: 12px; padding: 20px; border: 1px solid #e2e8f0;">
+            <p style="color: #64748b; font-size: 12px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.05em;">Message</p>
+            <p style="color: #1e293b; font-size: 14px; line-height: 1.7; margin: 0; white-space: pre-wrap;">{message}</p>
+          </div>
+          <p style="color: #94a3b8; font-size: 12px; margin: 24px 0 0; border-top: 1px solid #e2e8f0; padding-top: 16px;">
+            Reply directly to this email to respond to {name}.
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+    try:
+        params = {
+            "from": SENDER_EMAIL,
+            "to": [ADMIN_EMAIL],
+            "reply_to": email,
+            "subject": f"New Enquiry from {name} | Laundry Express",
+            "html": html,
+        }
+        result = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Contact enquiry email sent from {email}, email_id: {result.get('id')}")
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to send contact enquiry email: {str(e)}")
+        return {"status": "error", "message": str(e)}

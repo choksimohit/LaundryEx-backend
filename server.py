@@ -17,7 +17,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import stripe
 import httpx
-from email_service import send_order_confirmation_email, send_status_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_welcome_offer_to_users, send_password_reset_email
+from email_service import send_order_confirmation_email, send_status_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_welcome_offer_to_users, send_password_reset_email, send_contact_enquiry_email
 from whatsapp_service import send_whatsapp_new_order, send_whatsapp_new_user, send_whatsapp_to_customer
 
 ROOT_DIR = Path(__file__).parent
@@ -1193,6 +1193,17 @@ async def capture_out_of_area_lead(data: dict):
         upsert=True
     )
     return {"status": "success"}
+
+@api_router.post("/contact/enquiry")
+async def contact_enquiry(data: dict):
+    name = (data.get("name") or "").strip()
+    email = (data.get("email") or "").strip()
+    message = (data.get("message") or "").strip()
+    if not name or not email or not message:
+        raise HTTPException(status_code=422, detail="name, email, and message are required")
+    await send_contact_enquiry_email(name, email, message)
+    return {"ok": True}
+
 
 @api_router.get("/reviews")
 async def get_google_reviews():
