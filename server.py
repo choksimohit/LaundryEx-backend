@@ -248,6 +248,47 @@ async def login(credentials: UserLogin):
     token = create_access_token({"sub": user["id"], "email": user["email"], "role": user["role"]})
     return {"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}}
 
+@api_router.post("/auth/google")
+async def google_auth(data: dict):
+    token = (data.get("token") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Token required")
+    try:
+        from google.oauth2 import id_token as google_id_token
+        from google.auth.transport import requests as google_requests
+        GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "126983041672-42bta7vlk9ta8s3e4hq5000inr2c8ti2.apps.googleusercontent.com")
+        idinfo = google_id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
+    google_id = idinfo["sub"]
+    email = idinfo.get("email", "").lower()
+    name = idinfo.get("name", "")
+
+    user = await db.users.find_one({"$or": [{"google_id": google_id}, {"email": email}]}, {"_id": 0})
+    if user:
+        if not user.get("google_id"):
+            await db.users.update_one({"id": user["id"]}, {"$set": {"google_id": google_id, "auth_provider": "google"}})
+        jwt_token = create_access_token({"sub": user["id"], "email": user["email"], "role": user["role"]})
+        return {"token": jwt_token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}}
+
+    user_id = str(uuid.uuid4())
+    new_user = {
+        "id": user_id,
+        "email": email,
+        "name": name,
+        "phone": "",
+        "password": secrets.token_hex(16),
+        "role": "customer",
+        "google_id": google_id,
+        "auth_provider": "google",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(new_user)
+    jwt_token = create_access_token({"sub": user_id, "email": email, "role": "customer"})
+    return {"token": jwt_token, "user": {"id": user_id, "email": email, "name": name, "role": "customer"}}
+
+
 @api_router.get("/auth/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
     return {"id": current_user["id"], "email": current_user["email"], "name": current_user["name"], "role": current_user["role"]}
