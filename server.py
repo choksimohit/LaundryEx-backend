@@ -17,7 +17,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import stripe
 import httpx
-from email_service import send_order_confirmation_email, send_status_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_welcome_offer_to_users, send_password_reset_email, send_contact_enquiry_email, send_stripe_payment_link_email
+from email_service import send_order_confirmation_email, send_status_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_welcome_offer_to_users, send_password_reset_email, send_contact_enquiry_email, send_stripe_payment_link_email, send_payment_received_email
 from whatsapp_service import send_whatsapp_new_order, send_whatsapp_new_user, send_whatsapp_to_customer
 
 ROOT_DIR = Path(__file__).parent
@@ -754,6 +754,17 @@ async def stripe_webhook(request: Request):
                 {"id": order_id},
                 {"$set": {"payment_status": "paid", "payment_method": "stripe", "stripe_payment_intent": session.get("payment_intent")}}
             )
+            order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+            if order and order.get("user_email"):
+                try:
+                    await send_payment_received_email(
+                        customer_name=order.get("user_name", "Customer"),
+                        customer_email=order["user_email"],
+                        order_number=order["order_number"],
+                        amount=order["total_amount"],
+                    )
+                except Exception as e:
+                    print(f"Failed to send payment received email: {e}")
     return {"status": "ok"}
 
 
