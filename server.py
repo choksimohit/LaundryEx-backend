@@ -604,6 +604,42 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
     }
     await db.orders.insert_one(order_doc)
 
+    # Auto-send Stripe payment link email
+    try:
+        frontend_url = os.environ.get("FRONTEND_URL", "https://www.laundry-express.co.uk")
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            customer_email=customer_email,
+            line_items=[{
+                "price_data": {
+                    "currency": "gbp",
+                    "unit_amount": int(round(total_amount * 100)),
+                    "product_data": {
+                        "name": f"Laundry Express Order #{order_number}",
+                        "description": f"Pickup: {order_data.pickup_date} · Delivery: {order_data.delivery_date}",
+                    },
+                },
+                "quantity": 1,
+            }],
+            success_url=f"{frontend_url}/order-confirmation?order_id={order_id}&paid=1",
+            cancel_url=f"{frontend_url}/dashboard",
+            expires_at=int((datetime.now(timezone.utc) + timedelta(hours=24)).timestamp()),
+            metadata={"order_id": order_id, "order_number": str(order_number)},
+        )
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {"stripe_checkout_session_id": session.id, "payment_link_sent_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        await send_stripe_payment_link_email(
+            customer_name=order_data.customer_name,
+            customer_email=customer_email,
+            order_number=order_number,
+            amount=total_amount,
+            payment_url=session.url,
+        )
+    except Exception as e:
+        print(f"Failed to send Stripe payment link: {e}")
+
     # WhatsApp: order confirmation + account setup link if new account
     try:
         if account_created and reset_link:
@@ -611,9 +647,8 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
                 f"Hi {order_data.customer_name}, your Laundry Express order #{order_number} has been placed! 🧺\n\n"
                 f"Pickup: {order_data.pickup_date} ({order_data.pickup_time})\n"
                 f"Delivery: {order_data.delivery_date} ({order_data.delivery_time})\n"
-                f"Total: £{total_amount:.2f} (Cash on Delivery)\n\n"
-                f"We've also created an online account for you so you can book and track future orders yourself.\n"
-                f"Set your password here (link valid for 72 hours):\n{reset_link}\n\n"
+                f"Total: £{total_amount:.2f}\n\n"
+                f"A payment link has been sent to your email. You can also set up your online account here (valid 72 hours):\n{reset_link}\n\n"
                 f"We'll keep you updated as your order progresses. Thank you!"
             )
         else:
@@ -621,8 +656,8 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
                 f"Hi {order_data.customer_name}, your Laundry Express order #{order_number} has been placed!\n\n"
                 f"Pickup: {order_data.pickup_date} ({order_data.pickup_time})\n"
                 f"Delivery: {order_data.delivery_date} ({order_data.delivery_time})\n"
-                f"Total: £{total_amount:.2f} (Cash on Delivery)\n\n"
-                f"We'll keep you updated as your order progresses. Thank you! 🧺"
+                f"Total: £{total_amount:.2f}\n\n"
+                f"A payment link has been sent to your email. We'll keep you updated as your order progresses. Thank you! 🧺"
             )
         send_whatsapp_to_customer(order_data.customer_phone, msg)
     except Exception as e:
