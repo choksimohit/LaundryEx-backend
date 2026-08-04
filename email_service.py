@@ -750,6 +750,57 @@ def send_password_reset_email(to_email: str, name: str, reset_link: str):
         return {"status": "error", "message": str(e)}
 
 
+async def send_stripe_payment_link_email(customer_name: str, customer_email: str, order_number: int, amount: float, payment_url: str):
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <body style="margin:0; padding:0; font-family: Arial, sans-serif; background-color: #f1f5f9;">
+      <div style="max-width: 560px; margin: 40px auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08);">
+        <div style="background: linear-gradient(135deg, #1e40af, #2563eb); padding: 32px; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Laundry Express</h1>
+          <p style="color: #bfdbfe; margin: 8px 0 0; font-size: 14px;">Secure Payment Request</p>
+        </div>
+        <div style="padding: 32px;">
+          <p style="color: #1e293b; font-size: 16px; margin: 0 0 8px;">Hi {customer_name},</p>
+          <p style="color: #475569; font-size: 14px; line-height: 1.7; margin: 0 0 24px;">
+            Your Laundry Express order <strong style="color:#1e293b;">#{order_number}</strong> is ready for payment.
+            Please click the button below to pay securely via card. The link expires in 24 hours.
+          </p>
+          <div style="background: #f8fafc; border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #e2e8f0; margin-bottom: 28px;">
+            <p style="color: #64748b; font-size: 13px; margin: 0 0 4px;">Amount due</p>
+            <p style="color: #1e40af; font-size: 36px; font-weight: 800; margin: 0;">£{amount:.2f}</p>
+          </div>
+          <div style="text-align: center; margin-bottom: 28px;">
+            <a href="{payment_url}" style="display: inline-block; background: #2563eb; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 36px; border-radius: 50px;">
+              Pay Now →
+            </a>
+          </div>
+          <p style="color: #94a3b8; font-size: 12px; text-align: center; margin: 0;">
+            🔒 Powered by Stripe · Your card details are never stored by us
+          </p>
+          <p style="color: #94a3b8; font-size: 12px; margin: 20px 0 0; border-top: 1px solid #e2e8f0; padding-top: 16px;">
+            If you didn't expect this email, please ignore it or contact us at support@laundry-express.co.uk
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+    try:
+        params = {
+            "from": SENDER_EMAIL,
+            "to": [customer_email],
+            "subject": f"💳 Payment request for Order #{order_number} — £{amount:.2f}",
+            "html": html,
+        }
+        result = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Stripe payment link email sent to {customer_email}, email_id: {result.get('id')}")
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to send payment link email: {str(e)}")
+        raise
+
+
 async def send_contact_enquiry_email(name: str, email: str, message: str, phone: str = ""):
     phone_row = f"""
             <tr>

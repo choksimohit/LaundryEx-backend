@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import Response
 from dotenv import load_dotenv
@@ -17,7 +17,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import stripe
 import httpx
-from email_service import send_order_confirmation_email, send_status_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_welcome_offer_to_users, send_password_reset_email, send_contact_enquiry_email
+from email_service import send_order_confirmation_email, send_status_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_welcome_offer_to_users, send_password_reset_email, send_contact_enquiry_email, send_stripe_payment_link_email
 from whatsapp_service import send_whatsapp_new_order, send_whatsapp_new_user, send_whatsapp_to_customer
 
 ROOT_DIR = Path(__file__).parent
@@ -647,6 +647,80 @@ async def create_payment_intent(data: dict, current_user: dict = Depends(get_cur
         return {"client_secret": intent.client_secret}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.post("/admin/orders/{order_id}/send-payment-link")
+async def send_payment_link(order_id: str, admin: dict = Depends(get_admin_user)):
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    frontend_url = os.environ.get("FRONTEND_URL", "https://www.laundry-express.co.uk")
+    try:
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            customer_email=order.get("user_email"),
+            line_items=[{
+                "price_data": {
+                    "currency": "gbp",
+                    "unit_amount": int(round(order["total_amount"] * 100)),
+                    "product_data": {
+                        "name": f"Laundry Express Order #{order['order_number']}",
+                        "description": f"Pickup: {order.get('pickup_date', '')} · Delivery: {order.get('delivery_date', '')}",
+                    },
+                },
+                "quantity": 1,
+            }],
+            success_url=f"{frontend_url}/order-confirmation?order_id={order_id}&paid=1",
+            cancel_url=f"{frontend_url}/dashboard",
+            expires_at=int((datetime.now(timezone.utc) + timedelta(hours=24)).timestamp()),
+            metadata={"order_id": order_id, "order_number": str(order["order_number"])},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"stripe_checkout_session_id": session.id, "payment_link_sent_at": datetime.now(timezone.utc).isoformat()}}
+    )
+
+    try:
+        await send_stripe_payment_link_email(
+            customer_name=order.get("user_name", "Customer"),
+            customer_email=order["user_email"],
+            order_number=order["order_number"],
+            amount=order["total_amount"],
+            payment_url=session.url,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Order updated but email failed: {str(e)}")
+
+    return {"status": "sent", "session_url": session.url}
+
+
+@api_router.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
+    try:
+        if webhook_secret:
+            event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+        else:
+            import json
+            event = stripe.Event.construct_from(json.loads(payload), stripe.api_key)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        order_id = session.get("metadata", {}).get("order_id")
+        if order_id:
+            await db.orders.update_one(
+                {"id": order_id},
+                {"$set": {"payment_status": "paid", "payment_method": "stripe", "stripe_payment_intent": session.get("payment_intent")}}
+            )
+    return {"status": "ok"}
+
 
 @api_router.get("/orders")
 async def get_orders(current_user: dict = Depends(get_current_user)):
