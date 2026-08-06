@@ -790,32 +790,33 @@ async def update_order_status(order_id: str, data: OrderStatusUpdate, admin: dic
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
-    result = await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {"status": data.status}}
-    )
-    
+    update_fields = {"status": data.status}
+    if data.status == "drop_completed":
+        update_fields["drop_completed_at"] = datetime.now(timezone.utc).isoformat()
+
+    result = await db.orders.update_one({"id": order_id}, {"$set": update_fields})
+
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Order not found")
-    
-    # Update order dict with new status for email
+
     order["status"] = data.status
-    
-    # Send status update email to customer (regular orders)
-    if order.get("user_email"):
+
+    EMAIL_STATUSES = {"pickup_completed", "ready_for_drop", "drop_completed"}
+    WHATSAPP_MESSAGES = {
+        "pickup_completed": "We've collected your laundry and it's now on its way to our cleaning facility. 🧺",
+        "ready_for_drop": "Great news! Your laundry has been cleaned and is out for delivery. 🚚",
+        "drop_completed": "Your laundry has been delivered. Thank you for choosing Laundry Express! ⭐ We'd love your feedback.",
+    }
+
+    if data.status in EMAIL_STATUSES and order.get("user_email"):
         try:
             await send_status_update_email(order, data.status, order["user_email"])
         except Exception as e:
             print(f"Failed to send status update email: {e}")
 
-    # Send WhatsApp status update for manual (WhatsApp) orders
-    if order.get("phone"):
+    if data.status in EMAIL_STATUSES and order.get("phone"):
         try:
-            status_label = data.status.replace("_", " ").title()
-            msg = (
-                f"Hi {order.get('user_name', 'there')}, your Laundry Express order #{order.get('order_number')} "
-                f"has been updated.\n\nNew status: *{status_label}*\n\nThank you for choosing Laundry Express! 🧺"
-            )
+            msg = f"Hi {order.get('user_name', 'there')}, order #{order.get('order_number')} update:\n\n{WHATSAPP_MESSAGES[data.status]}"
             send_whatsapp_to_customer(order["phone"], msg)
         except Exception as e:
             print(f"Failed to send WhatsApp status update: {e}")
@@ -1086,6 +1087,53 @@ async def send_review_request(body: ReviewRequestBody, admin: dict = Depends(get
     if skipped:
         msg += f" {skipped} skipped (already emailed within 30 days)."
     return {"message": msg, "sent": result["sent"], "failed": result["failed"], "skipped": skipped}
+
+
+@api_router.post("/cron/auto-review-request")
+async def cron_auto_review_request(request: Request):
+    cron_secret = os.environ.get("CRON_SECRET", "")
+    auth_header = request.headers.get("authorization", "")
+    if cron_secret and auth_header != f"Bearer {cron_secret}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=24)
+    thirty_days_ago = now - timedelta(days=30)
+
+    delivered_orders = await db.orders.find(
+        {"status": "drop_completed", "drop_completed_at": {"$lte": cutoff.isoformat()}},
+        {"_id": 0, "user_email": 1}
+    ).to_list(10000)
+
+    eligible_emails = {o["user_email"] for o in delivered_orders if o.get("user_email")}
+    if not eligible_emails:
+        return {"message": "No eligible orders", "sent": 0}
+
+    users = await db.users.find(
+        {"email": {"$in": list(eligible_emails)}},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "review_request_sent_at": 1}
+    ).to_list(10000)
+
+    eligible = []
+    for u in users:
+        last_sent = u.get("review_request_sent_at")
+        if last_sent:
+            try:
+                if datetime.fromisoformat(last_sent.replace("Z", "+00:00")) > thirty_days_ago:
+                    continue
+            except Exception:
+                pass
+        eligible.append(u)
+
+    if not eligible:
+        return {"message": "All eligible customers already received a review request recently", "sent": 0}
+
+    result = await send_review_request_to_all_users(eligible)
+    await db.users.update_many(
+        {"email": {"$in": [u["email"] for u in eligible]}},
+        {"$set": {"review_request_sent_at": now.isoformat()}}
+    )
+    return {"message": f"Review requests sent to {result['sent']} customers", "sent": result["sent"], "failed": result["failed"]}
 
 
 @api_router.get("/admin/welcome-offer-preview")

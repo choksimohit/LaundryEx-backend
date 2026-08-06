@@ -198,27 +198,35 @@ def generate_order_confirmation_email(order_data: Dict) -> str:
 
 
 def generate_status_update_email(order_data: Dict, new_status: str) -> str:
-    status_messages = {
-        "pending": "Your order has been received and is awaiting confirmation.",
-        "confirmed": "Great news! Your order has been confirmed and we're preparing for pickup.",
-        "processing": "Your items are being carefully processed by our team.",
-        "completed": "Your order is complete and ready for delivery!",
-        "cancelled": "Your order has been cancelled. If you have questions, please contact us."
+    status_config = {
+        "pickup_completed": {
+            "title": "Laundry Collected",
+            "message": "We've collected your laundry and it's now on its way to our cleaning facility.",
+            "color": "#2563eb",
+            "icon": "🧺",
+        },
+        "ready_for_drop": {
+            "title": "Ready for Delivery",
+            "message": "Great news! Your laundry has been cleaned and is scheduled for delivery.",
+            "color": "#8b5cf6",
+            "icon": "🚚",
+        },
+        "drop_completed": {
+            "title": "Delivered",
+            "message": "Your laundry has been delivered. Thank you for choosing Laundry Express. We'd love to hear your feedback. ⭐",
+            "color": "#10b981",
+            "icon": "✅",
+        },
     }
-    status_colors = {
-        "pending": "#f59e0b",
-        "confirmed": "#2563eb",
-        "processing": "#8b5cf6",
-        "completed": "#10b981",
-        "cancelled": "#ef4444"
-    }
-    status_icons = {
-        "pending": "⏳",
-        "confirmed": "✅",
-        "processing": "⚙️",
-        "completed": "🎉",
-        "cancelled": "❌"
-    }
+    cfg = status_config.get(new_status, {
+        "title": new_status.replace("_", " ").title(),
+        "message": "Your order status has been updated.",
+        "color": "#2563eb",
+        "icon": "📦",
+    })
+    status_messages = {k: v["message"] for k, v in status_config.items()}
+    status_colors = {k: v["color"] for k, v in status_config.items()}
+    status_icons = {k: v["icon"] for k, v in status_config.items()}
 
     items_html = _build_items_html(order_data)
     schedule_html = _build_schedule_html(order_data)
@@ -239,9 +247,9 @@ def generate_status_update_email(order_data: Dict, new_status: str) -> str:
                 <td align="center">
                     <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
                         <tr>
-                            <td style="background-color: {status_colors.get(new_status, '#2563eb')}; padding: 40px; text-align: center;">
-                                <div style="font-size: 48px; margin-bottom: 16px;">{status_icons.get(new_status, '📦')}</div>
-                                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Order Status Updated</h1>
+                            <td style="background-color: {cfg['color']}; padding: 40px; text-align: center;">
+                                <div style="font-size: 48px; margin-bottom: 16px;">{cfg['icon']}</div>
+                                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">{cfg['title']}</h1>
                             </td>
                         </tr>
                         <tr>
@@ -249,8 +257,8 @@ def generate_status_update_email(order_data: Dict, new_status: str) -> str:
                                 <div style="background-color: #f1f5f9; border-radius: 12px; padding: 24px; margin-bottom: 32px; text-align: center;">
                                     <div style="font-size: 14px; color: #64748b; margin-bottom: 8px;">Order Number</div>
                                     <div style="font-size: 28px; font-weight: 700; color: #2563eb; margin-bottom: 16px;">#{order_data['order_number']}</div>
-                                    <div style="display: inline-block; background-color: {status_colors.get(new_status, '#2563eb')}; color: #ffffff; padding: 12px 24px; border-radius: 24px; font-size: 16px; font-weight: 600; text-transform: capitalize;">
-                                        {new_status}
+                                    <div style="display: inline-block; background-color: {cfg['color']}; color: #ffffff; padding: 12px 24px; border-radius: 24px; font-size: 16px; font-weight: 600;">
+                                        {cfg['title']}
                                     </div>
                                 </div>
 
@@ -420,13 +428,20 @@ async def send_order_confirmation_email(order_data: Dict, recipient_email: str):
         return {"status": "error", "message": str(e)}
 
 
+_STATUS_SUBJECTS = {
+    "pickup_completed": "We've collected your laundry",
+    "ready_for_drop": "Your laundry is out for delivery",
+    "drop_completed": "Your laundry has been delivered",
+}
+
 async def send_status_update_email(order_data: Dict, new_status: str, recipient_email: str):
     try:
         html_content = generate_status_update_email(order_data, new_status)
+        subject_prefix = _STATUS_SUBJECTS.get(new_status, f"Status updated to {new_status.replace('_', ' ').title()}")
         params = {
             "from": SENDER_EMAIL,
             "to": [recipient_email],
-            "subject": f"Order #{order_data['order_number']} - Status Updated to {new_status.title()} | Laundry Express",
+            "subject": f"{subject_prefix} — Order #{order_data['order_number']} | Laundry Express",
             "html": html_content
         }
         email = await asyncio.to_thread(resend.Emails.send, params)

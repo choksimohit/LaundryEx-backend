@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/auto-review-request",
+      "schedule": "0 9 * * *"
+    }
+  ]
+}
