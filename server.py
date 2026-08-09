@@ -434,7 +434,11 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
         raise HTTPException(status_code=400, detail="We are closed from 19th-25th April for scheduled maintenance. Please select a pickup date after 25th April.")
     if closure_start <= order_data.delivery_date <= closure_end:
         raise HTTPException(status_code=400, detail="We are closed from 19th-25th April for scheduled maintenance. Please select a delivery date after 25th April.")
-    
+
+    items_subtotal = sum(item.price * item.quantity for item in order_data.items)
+    if items_subtotal < 15:
+        raise HTTPException(status_code=400, detail="Minimum order value is £15.")
+
     order_id = str(uuid.uuid4())
     
     # Generate 6-digit numeric order number
