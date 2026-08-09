@@ -939,13 +939,18 @@ async def delete_product(product_id: str, admin: dict = Depends(get_admin_user))
 @api_router.get("/admin/orders")
 async def get_admin_orders(admin: dict = Depends(get_admin_user)):
     orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    # Sanitise any phone values that accidentally contain an email address
+    for o in orders:
+        if o.get("phone") and "@" in o["phone"]:
+            o["phone"] = ""
     user_ids = list({o["user_id"] for o in orders if o.get("user_id") and not o.get("phone")})
     if user_ids:
         user_docs = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "phone": 1}).to_list(len(user_ids))
-        users_map = {u["id"]: u.get("phone", "") for u in user_docs}
+        users_map = {u["id"]: (u.get("phone") or "") for u in user_docs}
         for o in orders:
             if not o.get("phone") and o.get("user_id"):
-                o["phone"] = users_map.get(o["user_id"], "")
+                phone = users_map.get(o["user_id"], "")
+                o["phone"] = "" if "@" in phone else phone
     return orders
 
 @api_router.get("/admin/stats")
