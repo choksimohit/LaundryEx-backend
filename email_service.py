@@ -67,11 +67,14 @@ def _build_schedule_html(order_data):
 
 
 def _build_address_html(order_data):
+    phone = order_data.get('phone', '')
+    phone_row = f'<div style="font-size: 14px; color: #64748b; margin-top: 4px;">📱 Mobile: {phone}</div>' if phone and '@' not in phone else ''
     return f"""
     <div style="background-color: #f1f5f9; border-radius: 8px; padding: 20px; margin-bottom: 32px;">
         <div style="font-size: 13px; color: #64748b; margin-bottom: 6px;">📍 Delivery Address</div>
         <div style="font-size: 15px; color: #1e293b; margin-bottom: 4px;">{order_data.get('address', 'N/A')}</div>
         <div style="font-size: 14px; color: #64748b;">Postcode: {order_data.get('pin_code', 'N/A')}</div>
+        {phone_row}
     </div>
     """
 
@@ -361,6 +364,7 @@ def generate_admin_notification_email(order_data: Dict) -> str:
                                             <td style="padding: 6px 0; color: #64748b; font-size: 14px;">Email</td>
                                             <td style="padding: 6px 0; text-align: right; color: #1e293b;">{order_data['user_email']}</td>
                                         </tr>
+                                        {'<tr><td style="padding: 6px 0; color: #64748b; font-size: 14px;">Mobile</td><td style="padding: 6px 0; text-align: right; color: #1e293b;">' + order_data.get("phone","") + '</td></tr>' if order_data.get("phone") and "@" not in order_data.get("phone","") else ''}
                                         <tr>
                                             <td style="padding: 6px 0; color: #64748b; font-size: 14px;">Address</td>
                                             <td style="padding: 6px 0; text-align: right; color: #1e293b;">{order_data.get('address', 'N/A')}</td>
