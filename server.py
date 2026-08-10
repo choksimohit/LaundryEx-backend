@@ -176,6 +176,7 @@ class ManualOrderCreate(BaseModel):
     delivery_time: str
     payment_method: Optional[str] = "cod"
     customer_note: Optional[str] = ""
+    promo_code: Optional[str] = ""
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -270,7 +271,8 @@ async def google_auth(data: dict):
         if not user.get("google_id"):
             await db.users.update_one({"id": user["id"]}, {"$set": {"google_id": google_id, "auth_provider": "google"}})
         jwt_token = create_access_token({"sub": user["id"], "email": user["email"], "role": user["role"]})
-        return {"token": jwt_token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}}
+        needs_phone = not bool(user.get("phone") and "@" not in user["phone"])
+        return {"token": jwt_token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}, "needs_phone": needs_phone}
 
     user_id = str(uuid.uuid4())
     new_user = {
@@ -286,7 +288,16 @@ async def google_auth(data: dict):
     }
     await db.users.insert_one(new_user)
     jwt_token = create_access_token({"sub": user_id, "email": email, "role": "customer"})
-    return {"token": jwt_token, "user": {"id": user_id, "email": email, "name": name, "role": "customer"}}
+    return {"token": jwt_token, "user": {"id": user_id, "email": email, "name": name, "role": "customer"}, "needs_phone": True}
+
+
+@api_router.patch("/auth/update-phone")
+async def update_phone(data: dict, current_user: dict = Depends(get_current_user)):
+    phone = (data.get("phone") or "").strip()
+    if not phone:
+        raise HTTPException(status_code=400, detail="Phone number required")
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {"phone": phone}})
+    return {"status": "ok"}
 
 
 @api_router.get("/auth/me")
@@ -527,8 +538,15 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
     order_number = (last_order[0]["order_number"] + 1) if last_order and "order_number" in last_order[0] else 100000
 
     items_total = sum(item.price * item.quantity for item in order_data.items)
-    delivery_charge = 0 if items_total >= 30 else 4.45
-    total_amount = round(items_total + delivery_charge, 2)
+    promo_code = (order_data.promo_code or "").strip().upper()
+    discount_amount = 0
+    if promo_code:
+        promo_doc = await db.promo_codes.find_one({"code": promo_code, "active": True})
+        if promo_doc:
+            discount_amount = round(items_total * promo_doc["discount_percent"] / 100, 2)
+    after_discount = items_total - discount_amount
+    delivery_charge = 0 if after_discount >= 30 else 4.45
+    total_amount = round(after_discount + delivery_charge, 2)
 
     # Auto-create or find user account for this WhatsApp customer
     customer_email = order_data.customer_email.strip().lower()
@@ -597,8 +615,8 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
         "payment_method": order_data.payment_method,
         "payment_status": "cod",
         "items_total": items_total,
-        "promo_code": "",
-        "discount_amount": 0,
+        "promo_code": promo_code,
+        "discount_amount": discount_amount,
         "delivery_charge": delivery_charge,
         "total_amount": total_amount,
         "customer_note": order_data.customer_note or "",
@@ -1595,6 +1613,16 @@ async def delete_blog_post(post_id: str, admin: dict = Depends(get_admin_user)):
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Post not found")
     return {"status": "success"}
+
+@api_router.post("/admin/promo/validate")
+async def admin_validate_promo(data: dict, admin: dict = Depends(get_admin_user)):
+    code = (data.get("code") or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="No code provided")
+    promo = await db.promo_codes.find_one({"code": code, "active": True}, {"_id": 0})
+    if not promo:
+        raise HTTPException(status_code=404, detail="Invalid or inactive promo code")
+    return {"code": promo["code"], "discount_percent": promo["discount_percent"], "description": promo.get("description", "")}
 
 @api_router.post("/promo/validate")
 async def validate_promo_code(data: dict, current_user: dict = Depends(get_current_user)):
