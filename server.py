@@ -190,6 +190,20 @@ def create_access_token(data: dict) -> str:
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
+async def send_expo_push_notifications(tokens: List[str], title: str, body: str, data: Optional[dict] = None):
+    if not tokens:
+        return
+    messages = [{"to": t, "title": title, "body": body, "data": data or {}} for t in tokens]
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                "https://exp.host/--/api/v2/push/send",
+                json=messages,
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+            )
+    except Exception as e:
+        logger.error(f"Failed to send Expo push notification: {e}")
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
         token = credentials.credentials
@@ -303,6 +317,14 @@ async def update_phone(data: dict, current_user: dict = Depends(get_current_user
 @api_router.get("/auth/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
     return {"id": current_user["id"], "email": current_user["email"], "name": current_user["name"], "role": current_user["role"]}
+
+@api_router.post("/auth/push-token")
+async def register_push_token(data: dict, current_user: dict = Depends(get_current_user)):
+    token = (data.get("push_token") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="push_token required")
+    await db.users.update_one({"id": current_user["id"]}, {"$addToSet": {"push_tokens": token}})
+    return {"status": "ok"}
 
 @api_router.post("/auth/forgot-password")
 async def forgot_password(data: dict):
@@ -527,6 +549,21 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
         send_whatsapp_new_order(order_doc)
     except Exception as e:
         print(f"Failed to send WhatsApp order notification: {e}")
+
+    try:
+        admin_docs = await db.users.find(
+            {"role": {"$in": ["business_admin", "platform_admin", "super_admin"]}},
+            {"_id": 0, "push_tokens": 1}
+        ).to_list(100)
+        admin_tokens = [t for doc in admin_docs for t in doc.get("push_tokens", [])]
+        await send_expo_push_notifications(
+            admin_tokens,
+            title=f"New order #{order_number}",
+            body=f"{current_user['name']} placed an order — £{total_with_delivery:.2f}",
+            data={"order_id": order_id},
+        )
+    except Exception as e:
+        logger.error(f"Failed to send admin push notification for new order: {e}")
 
     return {"order_id": order_id, "order_number": order_number, "status": "success"}
 
@@ -842,6 +879,19 @@ async def update_order_status(order_id: str, data: OrderStatusUpdate, admin: dic
             send_whatsapp_to_customer(order["phone"], msg)
         except Exception as e:
             print(f"Failed to send WhatsApp status update: {e}")
+
+    if data.status in EMAIL_STATUSES and order.get("user_id"):
+        try:
+            user = await db.users.find_one({"id": order["user_id"]}, {"_id": 0, "push_tokens": 1})
+            if user and user.get("push_tokens"):
+                await send_expo_push_notifications(
+                    user["push_tokens"],
+                    title=f"Order #{order.get('order_number')} update",
+                    body=WHATSAPP_MESSAGES[data.status],
+                    data={"order_id": order_id, "status": data.status},
+                )
+        except Exception as e:
+            logger.error(f"Failed to send push notification for order status update: {e}")
 
     return {"status": "success"}
 
