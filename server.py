@@ -177,6 +177,7 @@ class ManualOrderCreate(BaseModel):
     payment_method: Optional[str] = "cod"
     customer_note: Optional[str] = ""
     promo_code: Optional[str] = ""
+    status: Optional[str] = "pending"
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -657,7 +658,7 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
         "delivery_charge": delivery_charge,
         "total_amount": total_amount,
         "customer_note": order_data.customer_note or "",
-        "status": "pending",
+        "status": order_data.status or "pending",
         "source": "manual",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
