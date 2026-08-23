@@ -664,6 +664,12 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
     }
     await db.orders.insert_one(order_doc)
 
+    # Notify admin of the new order
+    try:
+        await send_admin_order_notification(order_doc)
+    except Exception as e:
+        print(f"Failed to send admin notification email: {e}")
+
     # Auto-send Stripe payment link email
     try:
         frontend_url = os.environ.get("FRONTEND_URL", "https://www.laundry-express.co.uk")
@@ -722,12 +728,6 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
         send_whatsapp_to_customer(order_data.customer_phone, msg)
     except Exception as e:
         print(f"Failed to send WhatsApp confirmation to customer: {e}")
-
-    # Notify admin
-    try:
-        await send_admin_order_notification(order_doc)
-    except Exception as e:
-        print(f"Failed to send admin notification email: {e}")
 
     return {"order_id": order_id, "order_number": order_number, "status": "success", "account_created": account_created}
 
