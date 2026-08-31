@@ -6,6 +6,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import re
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
@@ -400,11 +401,14 @@ async def reset_password(data: dict):
 
 @api_router.post("/pincode/check", response_model=PinCodeResponse)
 async def check_pincode(data: PinCodeCheck):
-    businesses = await db.businesses.find(
-        {"pin_codes": data.pin_code},
-        {"_id": 0}
-    ).to_list(100)
-    
+    normalized_input = re.sub(r"\s+", "", data.pin_code).upper()
+
+    all_businesses = await db.businesses.find({}, {"_id": 0}).to_list(1000)
+    businesses = [
+        b for b in all_businesses
+        if any(normalized_input.startswith(re.sub(r"\s+", "", code).upper()) for code in b.get("pin_codes", []))
+    ]
+
     return {
         "available": len(businesses) > 0,
         "businesses": businesses
