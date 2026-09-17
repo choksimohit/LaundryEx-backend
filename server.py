@@ -18,7 +18,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import stripe
 import httpx
-from email_service import send_order_confirmation_email, send_status_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_welcome_offer_to_users, send_password_reset_email, send_contact_enquiry_email, send_stripe_payment_link_email, send_payment_received_email
+from email_service import send_order_confirmation_email, send_status_update_email, send_schedule_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_welcome_offer_to_users, send_password_reset_email, send_contact_enquiry_email, send_stripe_payment_link_email, send_payment_received_email
 from whatsapp_service import send_whatsapp_new_order, send_whatsapp_new_user, send_whatsapp_to_customer
 
 ROOT_DIR = Path(__file__).parent
@@ -156,6 +156,12 @@ class ProductCreate(BaseModel):
 
 class OrderStatusUpdate(BaseModel):
     status: str
+
+class OrderScheduleUpdate(BaseModel):
+    pickup_date: str
+    pickup_time: str
+    delivery_date: str
+    delivery_time: str
 
 class ManualOrderItem(BaseModel):
     product_name: str
@@ -897,6 +903,42 @@ async def update_order_status(order_id: str, data: OrderStatusUpdate, admin: dic
                 )
         except Exception as e:
             logger.error(f"Failed to send push notification for order status update: {e}")
+
+    return {"status": "success"}
+
+@api_router.patch("/admin/orders/{order_id}/schedule")
+async def update_order_schedule(order_id: str, data: OrderScheduleUpdate, admin: dict = Depends(get_admin_user)):
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    update_fields = {
+        "pickup_date": data.pickup_date,
+        "pickup_time": data.pickup_time,
+        "delivery_date": data.delivery_date,
+        "delivery_time": data.delivery_time,
+    }
+    await db.orders.update_one({"id": order_id}, {"$set": update_fields})
+    order.update(update_fields)
+
+    msg = (
+        f"Hi {order.get('user_name', 'there')}, your Laundry Express order #{order.get('order_number')} "
+        f"schedule has been updated:\n\n"
+        f"Pickup: {data.pickup_date} ({data.pickup_time})\n"
+        f"Delivery: {data.delivery_date} ({data.delivery_time})\n\n"
+        f"If this doesn't work for you, please get in touch."
+    )
+    if order.get("phone"):
+        try:
+            send_whatsapp_to_customer(order["phone"], msg)
+        except Exception as e:
+            print(f"Failed to send WhatsApp schedule update: {e}")
+
+    if order.get("user_email"):
+        try:
+            await send_schedule_update_email(order, order["user_email"])
+        except Exception as e:
+            print(f"Failed to send schedule update email: {e}")
 
     return {"status": "success"}
 

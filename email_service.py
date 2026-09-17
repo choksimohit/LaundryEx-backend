@@ -306,6 +306,65 @@ def generate_status_update_email(order_data: Dict, new_status: str) -> str:
     return html
 
 
+def generate_schedule_update_email(order_data: Dict) -> str:
+    schedule_html = _build_schedule_html(order_data)
+    address_html = _build_address_html(order_data)
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f8fafc;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8fafc; padding: 40px 20px;">
+            <tr>
+                <td align="center">
+                    <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                        <tr>
+                            <td style="background-color: #2563eb; padding: 40px; text-align: center;">
+                                <div style="font-size: 48px; margin-bottom: 16px;">🗓️</div>
+                                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Schedule Updated</h1>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 40px;">
+                                <div style="background-color: #f1f5f9; border-radius: 12px; padding: 24px; margin-bottom: 32px; text-align: center;">
+                                    <div style="font-size: 14px; color: #64748b; margin-bottom: 8px;">Order Number</div>
+                                    <div style="font-size: 28px; font-weight: 700; color: #2563eb;">#{order_data['order_number']}</div>
+                                </div>
+
+                                <p style="font-size: 16px; line-height: 1.6; color: #475569; text-align: center; margin: 0 0 32px 0;">
+                                    Your pickup and delivery schedule has been updated. Here are the new details:
+                                </p>
+
+                                {address_html}
+
+                                <h2 style="margin: 0 0 16px 0; font-size: 20px; color: #1e293b;">Pickup & Delivery Schedule</h2>
+                                {schedule_html}
+
+                                <p style="font-size: 14px; line-height: 1.6; color: #64748b; text-align: center; margin: 32px 0 0 0;">
+                                    If this new schedule doesn't work for you, please get in touch and we'll sort it out.
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="background-color: #f8fafc; padding: 32px; text-align: center; border-top: 1px solid #e2e8f0;">
+                                <p style="margin: 0 0 8px 0; color: #64748b; font-size: 14px;">Questions? We're here to help</p>
+                                <p style="margin: 0; color: #2563eb; font-size: 14px; font-weight: 500;">support@laundry-express.co.uk</p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
+    return html
+
+
 def generate_admin_notification_email(order_data: Dict) -> str:
     items_html = _build_items_html(order_data)
     schedule_html = _build_schedule_html(order_data)
@@ -453,6 +512,23 @@ async def send_status_update_email(order_data: Dict, new_status: str, recipient_
         return {"status": "success", "email_id": email.get("id")}
     except Exception as e:
         logger.error(f"Failed to send status update email: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+async def send_schedule_update_email(order_data: Dict, recipient_email: str):
+    try:
+        html_content = generate_schedule_update_email(order_data)
+        params = {
+            "from": SENDER_EMAIL,
+            "to": [recipient_email],
+            "subject": f"Your pickup/delivery schedule has changed — Order #{order_data['order_number']} | Laundry Express",
+            "html": html_content
+        }
+        email = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Schedule update email sent to {recipient_email}, email_id: {email.get('id')}")
+        return {"status": "success", "email_id": email.get("id")}
+    except Exception as e:
+        logger.error(f"Failed to send schedule update email: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 
