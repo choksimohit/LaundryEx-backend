@@ -911,6 +911,8 @@ async def update_order_schedule(order_id: str, data: OrderScheduleUpdate, admin:
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("status") == "drop_completed":
+        raise HTTPException(status_code=400, detail="Cannot edit schedule — order has already been delivered")
 
     update_fields = {
         "pickup_date": data.pickup_date,
