@@ -18,7 +18,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import stripe
 import httpx
-from email_service import send_order_confirmation_email, send_status_update_email, send_schedule_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_welcome_offer_to_users, send_password_reset_email, send_contact_enquiry_email, send_stripe_payment_link_email, send_payment_received_email
+from email_service import send_order_confirmation_email, send_status_update_email, send_schedule_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_password_reset_email, send_contact_enquiry_email, send_stripe_payment_link_email, send_payment_received_email
 from whatsapp_service import send_whatsapp_new_order, send_whatsapp_new_user, send_whatsapp_to_customer
 
 ROOT_DIR = Path(__file__).parent
@@ -43,6 +43,12 @@ async def run_migrations():
     await db.promo_codes.update_many(
         {"code": {"$in": ["WELCOME10", "WELCOME20"]}, "group": {"$exists": False}},
         {"$set": {"group": "welcome_offer"}}
+    )
+    # Standing new-customer discount retired — codes stay in the system for
+    # record-keeping but can no longer be redeemed.
+    await db.promo_codes.update_many(
+        {"code": {"$in": ["WELCOME10", "WELCOME20"]}},
+        {"$set": {"active": False}}
     )
 api_router = APIRouter(prefix="/api")
 
@@ -1140,7 +1146,6 @@ async def get_admin_users(admin: dict = Depends(get_admin_user)):
             "last_pin_code": s.get("last_pin_code", ""),
             "orders_per_month": orders_per_month,
             "review_request_sent_at": u.get("review_request_sent_at"),
-            "welcome_offer_sent_at": u.get("welcome_offer_sent_at"),
         })
 
     return result
@@ -1268,79 +1273,6 @@ async def cron_auto_review_request(request: Request):
     )
     return {"message": f"Review requests sent to {result['sent']} customers", "sent": result["sent"], "failed": result["failed"]}
 
-
-@api_router.get("/admin/welcome-offer-preview")
-async def welcome_offer_preview(admin: dict = Depends(get_admin_user)):
-    emails_with_orders = set(await db.orders.distinct("user_email"))
-    users = await db.users.find(
-        {"role": {"$nin": ["business_admin", "platform_admin", "super_admin"]}},
-        {"_id": 0, "name": 1, "email": 1, "welcome_offer_sent_at": 1}
-    ).to_list(10000)
-
-    now = datetime.now(timezone.utc)
-    thirty_days_ago = now - timedelta(days=30)
-    eligible = []
-    for u in users:
-        if u.get("email") in emails_with_orders:
-            continue
-        last_sent = u.get("welcome_offer_sent_at")
-        if last_sent:
-            try:
-                last_sent_dt = datetime.fromisoformat(last_sent.replace("Z", "+00:00"))
-                if last_sent_dt > thirty_days_ago:
-                    continue
-            except Exception:
-                pass
-        eligible.append({"name": u.get("name", "—"), "email": u.get("email", "")})
-
-    return {"eligible": eligible, "count": len(eligible)}
-
-
-class WelcomeOfferBody(BaseModel):
-    selected_emails: Optional[List[str]] = None
-
-
-@api_router.post("/admin/send-welcome-offer")
-async def send_welcome_offer(body: WelcomeOfferBody, admin: dict = Depends(get_admin_user)):
-    emails_with_orders = set(await db.orders.distinct("user_email"))
-    users = await db.users.find(
-        {"role": {"$nin": ["business_admin", "platform_admin", "super_admin"]}},
-        {"_id": 0, "id": 1, "name": 1, "email": 1, "welcome_offer_sent_at": 1}
-    ).to_list(10000)
-
-    now = datetime.now(timezone.utc)
-    thirty_days_ago = now - timedelta(days=30)
-    selected_set = set(body.selected_emails) if body.selected_emails else None
-
-    eligible, skipped = [], 0
-    for u in users:
-        if u.get("email") in emails_with_orders:
-            continue
-        last_sent = u.get("welcome_offer_sent_at")
-        if last_sent:
-            try:
-                last_sent_dt = datetime.fromisoformat(last_sent.replace("Z", "+00:00"))
-                if last_sent_dt > thirty_days_ago:
-                    skipped += 1
-                    continue
-            except Exception:
-                pass
-        if selected_set is not None and u.get("email") not in selected_set:
-            continue
-        eligible.append(u)
-
-    result = await send_welcome_offer_to_users(eligible)
-
-    if eligible:
-        await db.users.update_many(
-            {"email": {"$in": [u["email"] for u in eligible]}},
-            {"$set": {"welcome_offer_sent_at": now.isoformat()}}
-        )
-
-    msg = f"Sent to {result['sent']} customers."
-    if skipped:
-        msg += f" {skipped} skipped (already emailed within 30 days)."
-    return {"message": msg, "sent": result["sent"], "failed": result["failed"], "skipped": skipped}
 
 
 @api_router.get("/admin/categories")
