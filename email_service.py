@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+from datetime import datetime
 import resend
 from typing import List, Dict
 from dotenv import load_dotenv
@@ -39,16 +40,27 @@ def _build_items_html(order_data):
     return items_html
 
 
+def _format_display_date(date_str):
+    if not date_str:
+        return date_str
+    try:
+        return datetime.strptime(date_str[:10], "%Y-%m-%d").strftime("%d-%m-%Y")
+    except ValueError:
+        return date_str
+
+
 def _build_schedule_html(order_data):
     pickup_instruction = order_data.get('pickup_instruction', '')
     delivery_instruction = order_data.get('delivery_instruction', '')
+    pickup_date = _format_display_date(order_data['pickup_date'])
+    delivery_date = _format_display_date(order_data['delivery_date'])
     return f"""
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 32px;">
         <tr>
             <td width="50%" style="padding-right: 12px;">
                 <div style="background-color: #eff6ff; border-radius: 8px; padding: 20px;">
                     <div style="font-size: 14px; color: #3b82f6; font-weight: 600; margin-bottom: 8px;">🧺 Pickup</div>
-                    <div style="font-size: 15px; font-weight: 600; color: #1e293b; margin-bottom: 2px;">{order_data['pickup_date']}</div>
+                    <div style="font-size: 15px; font-weight: 600; color: #1e293b; margin-bottom: 2px;">{pickup_date}</div>
                     <div style="font-size: 14px; color: #64748b; margin-bottom: 6px;">{order_data['pickup_time']}</div>
                     {f'<div style="font-size: 13px; color: #64748b; font-style: italic;">{pickup_instruction}</div>' if pickup_instruction else ''}
                 </div>
@@ -56,7 +68,7 @@ def _build_schedule_html(order_data):
             <td width="50%" style="padding-left: 12px;">
                 <div style="background-color: #f0fdf4; border-radius: 8px; padding: 20px;">
                     <div style="font-size: 14px; color: #22c55e; font-weight: 600; margin-bottom: 8px;">🚚 Delivery</div>
-                    <div style="font-size: 15px; font-weight: 600; color: #1e293b; margin-bottom: 2px;">{order_data['delivery_date']}</div>
+                    <div style="font-size: 15px; font-weight: 600; color: #1e293b; margin-bottom: 2px;">{delivery_date}</div>
                     <div style="font-size: 14px; color: #64748b; margin-bottom: 6px;">{order_data['delivery_time']}</div>
                     {f'<div style="font-size: 13px; color: #64748b; font-style: italic;">{delivery_instruction}</div>' if delivery_instruction else ''}
                 </div>
