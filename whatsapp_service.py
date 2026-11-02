@@ -1,5 +1,6 @@
 import os
 import logging
+from datetime import datetime
 import httpx
 from dotenv import load_dotenv
 
@@ -20,6 +21,15 @@ def _normalise_phone(phone: str) -> str:
     if phone.startswith("0"):
         phone = "44" + phone[1:]
     return phone
+
+
+def _format_display_date(date_str):
+    if not date_str:
+        return date_str
+    try:
+        return datetime.strptime(date_str[:10], "%Y-%m-%d").strftime("%d-%m-%Y")
+    except ValueError:
+        return date_str
 
 
 def _send(to: str, body: str):
@@ -70,8 +80,8 @@ def send_whatsapp_new_order(order_doc: dict):
         f"👤 {order_doc.get('user_name')} ({order_doc.get('user_email')})\n"
         f"📦 {items_summary}\n"
         f"💰 Total: £{order_doc.get('total_amount', 0):.2f}\n"
-        f"📅 Pickup: {order_doc.get('pickup_date')} ({order_doc.get('pickup_time')})\n"
-        f"🚚 Delivery: {order_doc.get('delivery_date')} ({order_doc.get('delivery_time')})\n"
+        f"📅 Pickup: {_format_display_date(order_doc.get('pickup_date'))} ({order_doc.get('pickup_time')})\n"
+        f"🚚 Delivery: {_format_display_date(order_doc.get('delivery_date'))} ({order_doc.get('delivery_time')})\n"
         f"💳 Payment: {order_doc.get('payment_method', '').upper()}"
     )
     _send(META_ADMIN_WHATSAPP, message)

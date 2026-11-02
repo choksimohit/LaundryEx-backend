@@ -19,7 +19,7 @@ from jose import JWTError, jwt
 import stripe
 import httpx
 from email_service import send_order_confirmation_email, send_status_update_email, send_schedule_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_password_reset_email, send_contact_enquiry_email, send_stripe_payment_link_email, send_payment_received_email
-from whatsapp_service import send_whatsapp_new_order, send_whatsapp_new_user, send_whatsapp_to_customer
+from whatsapp_service import send_whatsapp_new_order, send_whatsapp_new_user, send_whatsapp_to_customer, _format_display_date
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -698,7 +698,7 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
                     "unit_amount": int(round(total_amount * 100)),
                     "product_data": {
                         "name": f"Laundry Express Order #{order_number}",
-                        "description": f"Pickup: {order_data.pickup_date} · Delivery: {order_data.delivery_date}",
+                        "description": f"Pickup: {_format_display_date(order_data.pickup_date)} · Delivery: {_format_display_date(order_data.delivery_date)}",
                     },
                 },
                 "quantity": 1,
@@ -727,8 +727,8 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
         if account_created and reset_link:
             msg = (
                 f"Hi {order_data.customer_name}, your Laundry Express order #{order_number} has been placed! 🧺\n\n"
-                f"Pickup: {order_data.pickup_date} ({order_data.pickup_time})\n"
-                f"Delivery: {order_data.delivery_date} ({order_data.delivery_time})\n"
+                f"Pickup: {_format_display_date(order_data.pickup_date)} ({order_data.pickup_time})\n"
+                f"Delivery: {_format_display_date(order_data.delivery_date)} ({order_data.delivery_time})\n"
                 f"Total: £{total_amount:.2f}\n\n"
                 f"A payment link has been sent to your email. You can also set up your online account here (valid 72 hours):\n{reset_link}\n\n"
                 f"We'll keep you updated as your order progresses. Thank you!"
@@ -736,8 +736,8 @@ async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depen
         else:
             msg = (
                 f"Hi {order_data.customer_name}, your Laundry Express order #{order_number} has been placed!\n\n"
-                f"Pickup: {order_data.pickup_date} ({order_data.pickup_time})\n"
-                f"Delivery: {order_data.delivery_date} ({order_data.delivery_time})\n"
+                f"Pickup: {_format_display_date(order_data.pickup_date)} ({order_data.pickup_time})\n"
+                f"Delivery: {_format_display_date(order_data.delivery_date)} ({order_data.delivery_time})\n"
                 f"Total: £{total_amount:.2f}\n\n"
                 f"A payment link has been sent to your email. We'll keep you updated as your order progresses. Thank you! 🧺"
             )
