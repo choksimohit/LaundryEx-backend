@@ -426,6 +426,35 @@ async def reset_password(data: dict):
     
     return {"message": "Password has been reset successfully"}
 
+UK_POSTCODE_RE = re.compile(r"^[A-Z]{1,2}[0-9][A-Z0-9]?([0-9][A-Z]{2})?$")
+
+
+def postcode_district(postcode: str) -> str:
+    """Outward code of a UK postcode, e.g. CO27FQ -> CO2, CO5 -> CO5."""
+    if len(postcode) >= 5 and re.match(r"^[0-9][A-Z]{2}$", postcode[-3:]):
+        return postcode[:-3]
+    return postcode
+
+
+async def record_unserved_pincode_search(postcode: str):
+    """Count searches for postcodes we don't cover, so admins can spot areas worth expanding to."""
+    if not UK_POSTCODE_RE.match(postcode):
+        return  # ignore junk input
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        await db.pincode_searches.update_one(
+            {"postcode": postcode},
+            {
+                "$inc": {"search_count": 1},
+                "$set": {"last_searched_at": now, "district": postcode_district(postcode)},
+                "$setOnInsert": {"postcode": postcode, "first_searched_at": now},
+            },
+            upsert=True,
+        )
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Failed to record pincode search {postcode}: {e}")
+
+
 @api_router.post("/pincode/check", response_model=PinCodeResponse)
 async def check_pincode(data: PinCodeCheck):
     normalized_input = re.sub(r"\s+", "", data.pin_code).upper()
@@ -435,6 +464,9 @@ async def check_pincode(data: PinCodeCheck):
         b for b in all_businesses
         if any(normalized_input.startswith(re.sub(r"\s+", "", code).upper()) for code in b.get("pin_codes", []))
     ]
+
+    if not businesses:
+        await record_unserved_pincode_search(normalized_input)
 
     return {
         "available": len(businesses) > 0,
@@ -1644,6 +1676,54 @@ async def capture_out_of_area_lead(data: dict):
          "$setOnInsert": {"created_at": datetime.now(timezone.utc).isoformat()}},
         upsert=True
     )
+    return {"status": "success"}
+
+@api_router.get("/admin/pincode-searches")
+async def get_pincode_searches(admin: dict = Depends(get_admin_user)):
+    searches = await db.pincode_searches.find({}, {"_id": 0}).sort("search_count", -1).to_list(5000)
+    leads = await db.leads.find({}, {"_id": 0, "email": 1, "postcode": 1, "created_at": 1}).to_list(5000)
+
+    # Codes we now cover — so admins can see which searched postcodes have since been added.
+    all_businesses = await db.businesses.find({}, {"_id": 0, "pin_codes": 1}).to_list(1000)
+    served_codes = [re.sub(r"\s+", "", c).upper() for b in all_businesses for c in b.get("pin_codes", [])]
+
+    leads_by_postcode = {}
+    for lead in leads:
+        pc = re.sub(r"\s+", "", lead.get("postcode") or "").upper()
+        leads_by_postcode.setdefault(pc, []).append(lead["email"])
+
+    rows = []
+    for s in searches:
+        pc = s["postcode"]
+        rows.append({
+            **s,
+            "district": s.get("district") or postcode_district(pc),
+            "lead_emails": leads_by_postcode.get(pc, []),
+            "now_covered": any(pc.startswith(code) for code in served_codes),
+        })
+
+    districts = {}
+    for r in rows:
+        d = districts.setdefault(r["district"], {
+            "district": r["district"], "search_count": 0, "postcodes": 0,
+            "lead_count": 0, "last_searched_at": "", "now_covered": r["now_covered"],
+        })
+        d["search_count"] += r.get("search_count", 0)
+        d["postcodes"] += 1
+        d["lead_count"] += len(r["lead_emails"])
+        d["last_searched_at"] = max(d["last_searched_at"], r.get("last_searched_at", ""))
+        d["now_covered"] = d["now_covered"] and r["now_covered"]
+
+    return {
+        "searches": rows,
+        "districts": sorted(districts.values(), key=lambda d: d["search_count"], reverse=True),
+    }
+
+@api_router.delete("/admin/pincode-searches/{postcode}")
+async def delete_pincode_search(postcode: str, admin: dict = Depends(get_admin_user)):
+    result = await db.pincode_searches.delete_one({"postcode": re.sub(r"\s+", "", postcode).upper()})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Postcode not found")
     return {"status": "success"}
 
 @api_router.post("/contact/enquiry")
