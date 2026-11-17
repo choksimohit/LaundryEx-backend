@@ -132,6 +132,64 @@ def _build_price_summary_html(order_data):
     """
 
 
+def generate_quick_order_confirmation_email(order_data: Dict) -> str:
+    schedule_html = _build_schedule_html(order_data)
+    address_html = _build_address_html(order_data)
+    customer_note_html = _build_customer_note_html(order_data)
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f8fafc;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8fafc; padding: 40px 20px;">
+            <tr>
+                <td align="center">
+                    <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                        <tr>
+                            <td style="background: linear-gradient(135deg, #1e40af, #2563eb); padding: 40px; text-align: center;">
+                                <div style="font-size: 48px; margin-bottom: 16px;">⚡</div>
+                                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Quick Order Booked!</h1>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 40px;">
+                                <div style="background-color: #f1f5f9; border-radius: 12px; padding: 24px; margin-bottom: 32px; text-align: center;">
+                                    <div style="font-size: 14px; color: #64748b; margin-bottom: 8px;">Order Number</div>
+                                    <div style="font-size: 28px; font-weight: 700; color: #2563eb;">#{order_data['order_number']}</div>
+                                </div>
+
+                                <p style="font-size: 16px; line-height: 1.6; color: #475569; text-align: center; margin: 0 0 32px 0;">
+                                    No need to guess your laundry's weight — we'll assess it in person at pickup. We'll then email and WhatsApp you the final price and a secure payment link before we start washing.
+                                </p>
+
+                                {customer_note_html}
+
+                                <h2 style="margin: 0 0 16px 0; font-size: 20px; color: #1e293b;">Pickup & Delivery Schedule</h2>
+                                {schedule_html}
+
+                                {address_html}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="background-color: #f8fafc; padding: 32px; text-align: center; border-top: 1px solid #e2e8f0;">
+                                <p style="margin: 0 0 8px 0; color: #64748b; font-size: 14px;">Questions? We're here to help</p>
+                                <p style="margin: 0; color: #2563eb; font-size: 14px; font-weight: 500;">support@laundry-express.co.uk</p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
+    return html
+
+
 def generate_order_confirmation_email(order_data: Dict) -> str:
     items_html = _build_items_html(order_data)
     schedule_html = _build_schedule_html(order_data)
@@ -377,6 +435,156 @@ def generate_schedule_update_email(order_data: Dict) -> str:
     return html
 
 
+def generate_quick_order_received_email(order_data: Dict) -> str:
+    schedule_html = _build_schedule_html(order_data)
+    address_html = _build_address_html(order_data)
+    customer_note_html = _build_customer_note_html(order_data)
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f8fafc;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8fafc; padding: 40px 20px;">
+            <tr>
+                <td align="center">
+                    <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                        <tr>
+                            <td style="background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); padding: 40px; text-align: center;">
+                                <div style="font-size: 48px; margin-bottom: 12px;">⚡</div>
+                                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">New Quick Order</h1>
+                                <p style="margin: 12px 0 0 0; color: #e9d5ff; font-size: 14px;">No items yet — assess at pickup</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 40px;">
+                                <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px; border-radius: 4px; margin-bottom: 32px;">
+                                    <div style="font-weight: 600; color: #92400e; margin-bottom: 4px;">⚠️ Action Required</div>
+                                    <div style="color: #92400e; font-size: 14px;">Customer didn't select items — weigh/assess the laundry at pickup, then finalize items in the admin panel to send the payment link.</div>
+                                </div>
+
+                                <div style="background-color: #f1f5f9; border-radius: 12px; padding: 24px; margin-bottom: 32px; text-align: center;">
+                                    <div style="font-size: 13px; color: #64748b; margin-bottom: 4px;">Order Number</div>
+                                    <div style="font-size: 24px; font-weight: 700; color: #7c3aed;">#{order_data['order_number']}</div>
+                                </div>
+
+                                <h3 style="margin: 0 0 16px 0; font-size: 18px; color: #1e293b;">Customer Information</h3>
+                                <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin-bottom: 32px;">
+                                    <table width="100%" cellpadding="0" cellspacing="0">
+                                        <tr>
+                                            <td style="padding: 6px 0; color: #64748b; font-size: 14px;">Name</td>
+                                            <td style="padding: 6px 0; text-align: right; color: #1e293b; font-weight: 500;">{order_data['user_name']}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 6px 0; color: #64748b; font-size: 14px;">Email</td>
+                                            <td style="padding: 6px 0; text-align: right; color: #1e293b;">{order_data['user_email']}</td>
+                                        </tr>
+                                    </table>
+                                </div>
+
+                                {customer_note_html}
+
+                                <h3 style="margin: 0 0 16px 0; font-size: 18px; color: #1e293b;">Pickup & Delivery Schedule</h3>
+                                {schedule_html}
+
+                                {address_html}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="background-color: #f8fafc; padding: 24px; text-align: center; border-top: 1px solid #e2e8f0;">
+                                <p style="margin: 0; color: #64748b; font-size: 13px;">This is an automated notification from Laundry Express Admin System</p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
+    return html
+
+
+def generate_order_finalized_email(order_data: Dict, payment_url: str) -> str:
+    items_html = _build_items_html(order_data)
+    address_html = _build_address_html(order_data)
+    price_summary_html = _build_price_summary_html(order_data)
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f8fafc;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8fafc; padding: 40px 20px;">
+            <tr>
+                <td align="center">
+                    <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                        <tr>
+                            <td style="background: linear-gradient(135deg, #1e40af, #2563eb); padding: 40px; text-align: center;">
+                                <div style="font-size: 48px; margin-bottom: 12px;">✅</div>
+                                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Your Order Is Priced</h1>
+                                <p style="margin: 12px 0 0 0; color: #bfdbfe; font-size: 14px;">We've assessed your laundry — here's the final breakdown</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 40px;">
+                                <div style="background-color: #f1f5f9; border-radius: 12px; padding: 24px; margin-bottom: 32px; text-align: center;">
+                                    <div style="font-size: 14px; color: #64748b; margin-bottom: 8px;">Order Number</div>
+                                    <div style="font-size: 28px; font-weight: 700; color: #2563eb;">#{order_data['order_number']}</div>
+                                </div>
+
+                                <h3 style="margin: 0 0 16px 0; font-size: 18px; color: #1e293b;">Order Items</h3>
+                                <table width="100%" cellpadding="0" cellspacing="0" style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 32px;">
+                                    <thead>
+                                        <tr style="background-color: #f8fafc;">
+                                            <th style="padding: 10px; text-align: left; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase;">Item</th>
+                                            <th style="padding: 10px; text-align: center; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase;">Qty</th>
+                                            <th style="padding: 10px; text-align: right; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase;">Price</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>{items_html}</tbody>
+                                </table>
+
+                                {price_summary_html}
+
+                                <div style="text-align: center; margin-bottom: 28px;">
+                                    <a href="{payment_url}" style="display: inline-block; background: #2563eb; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 36px; border-radius: 50px;">
+                                        Pay Now →
+                                    </a>
+                                </div>
+                                <p style="color: #94a3b8; font-size: 12px; text-align: center; margin: 0 0 32px;">
+                                    🔒 Powered by Stripe · Secure payment link expires in 24 hours
+                                </p>
+
+                                {address_html}
+
+                                <p style="font-size: 14px; line-height: 1.6; color: #64748b; text-align: center; margin: 0;">
+                                    We'll begin washing once payment is received. Questions? Just reply to this email.
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="background-color: #f8fafc; padding: 32px; text-align: center; border-top: 1px solid #e2e8f0;">
+                                <p style="margin: 0 0 8px 0; color: #64748b; font-size: 14px;">Questions? We're here to help</p>
+                                <p style="margin: 0; color: #2563eb; font-size: 14px; font-weight: 500;">support@laundry-express.co.uk</p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
+    return html
+
+
 def generate_admin_notification_email(order_data: Dict) -> str:
     items_html = _build_items_html(order_data)
     schedule_html = _build_schedule_html(order_data)
@@ -486,6 +694,23 @@ def generate_admin_notification_email(order_data: Dict) -> str:
     return html
 
 
+async def send_quick_order_confirmation_email(order_data: Dict, recipient_email: str):
+    try:
+        html_content = generate_quick_order_confirmation_email(order_data)
+        params = {
+            "from": SENDER_EMAIL,
+            "to": [recipient_email],
+            "subject": f"Quick Order Booked — #{order_data['order_number']} | Laundry Express",
+            "html": html_content
+        }
+        email = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Quick order confirmation email sent to {recipient_email}, email_id: {email.get('id')}")
+        return {"status": "success", "email_id": email.get("id")}
+    except Exception as e:
+        logger.error(f"Failed to send quick order confirmation email: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
 async def send_order_confirmation_email(order_data: Dict, recipient_email: str):
     try:
         html_content = generate_order_confirmation_email(order_data)
@@ -541,6 +766,40 @@ async def send_schedule_update_email(order_data: Dict, recipient_email: str):
         return {"status": "success", "email_id": email.get("id")}
     except Exception as e:
         logger.error(f"Failed to send schedule update email: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+async def send_quick_order_received_email(order_data: Dict):
+    try:
+        html_content = generate_quick_order_received_email(order_data)
+        params = {
+            "from": SENDER_EMAIL,
+            "to": [ADMIN_EMAIL],
+            "subject": f"⚡ New Quick Order #{order_data['order_number']} — needs assessment at pickup | Laundry Express",
+            "html": html_content
+        }
+        email = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Quick order admin notification email sent, email_id: {email.get('id')}")
+        return {"status": "success", "email_id": email.get("id")}
+    except Exception as e:
+        logger.error(f"Failed to send quick order admin notification email: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+async def send_order_finalized_email(order_data: Dict, recipient_email: str, payment_url: str):
+    try:
+        html_content = generate_order_finalized_email(order_data, payment_url)
+        params = {
+            "from": SENDER_EMAIL,
+            "to": [recipient_email],
+            "subject": f"✅ Your order is priced — #{order_data['order_number']} — £{order_data['total_amount']:.2f} | Laundry Express",
+            "html": html_content
+        }
+        email = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Order finalized email sent to {recipient_email}, email_id: {email.get('id')}")
+        return {"status": "success", "email_id": email.get("id")}
+    except Exception as e:
+        logger.error(f"Failed to send order finalized email: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 

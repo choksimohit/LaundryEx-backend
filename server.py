@@ -18,7 +18,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import stripe
 import httpx
-from email_service import send_order_confirmation_email, send_status_update_email, send_schedule_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_password_reset_email, send_contact_enquiry_email, send_stripe_payment_link_email, send_payment_received_email
+from email_service import send_order_confirmation_email, send_status_update_email, send_schedule_update_email, send_admin_order_notification, send_admin_new_user_notification, send_review_request_to_all_users, send_password_reset_email, send_contact_enquiry_email, send_stripe_payment_link_email, send_payment_received_email, send_quick_order_received_email, send_quick_order_confirmation_email, send_order_finalized_email
 from whatsapp_service import send_whatsapp_new_order, send_whatsapp_new_user, send_whatsapp_to_customer, _format_display_date
 
 ROOT_DIR = Path(__file__).parent
@@ -120,6 +120,17 @@ class OrderCreate(BaseModel):
     promo_code: Optional[str] = ""
     discount_amount: Optional[float] = 0
 
+class QuickOrderCreate(BaseModel):
+    pickup_date: str
+    pickup_time: str
+    pickup_instruction: Optional[str] = ""
+    delivery_date: str
+    delivery_time: str
+    delivery_instruction: Optional[str] = ""
+    address: str
+    pin_code: str
+    customer_note: Optional[str] = ""
+
 class Order(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str
@@ -175,6 +186,10 @@ class ManualOrderItem(BaseModel):
     price: float
     category: Optional[str] = ""
     subcategory: Optional[str] = ""
+
+class QuickOrderFinalizeItems(BaseModel):
+    items: List[ManualOrderItem]
+    promo_code: Optional[str] = ""
 
 class ManualOrderCreate(BaseModel):
     customer_name: str
@@ -584,6 +599,79 @@ async def create_order(order_data: OrderCreate, current_user: dict = Depends(get
 
     return {"order_id": order_id, "order_number": order_number, "status": "success"}
 
+@api_router.post("/quick-orders")
+async def create_quick_order(order_data: QuickOrderCreate, current_user: dict = Depends(get_current_user)):
+    """Create a 'Quick Order' — customer books a pickup/delivery slot with no item selection.
+    Admin assesses the actual laundry at pickup and finalizes items/price afterwards."""
+    closure_start = "2026-04-19"
+    closure_end = "2026-04-25"
+    if closure_start <= order_data.pickup_date <= closure_end:
+        raise HTTPException(status_code=400, detail="We are closed from 19th-25th April for scheduled maintenance. Please select a pickup date after 25th April.")
+    if closure_start <= order_data.delivery_date <= closure_end:
+        raise HTTPException(status_code=400, detail="We are closed from 19th-25th April for scheduled maintenance. Please select a delivery date after 25th April.")
+
+    order_id = str(uuid.uuid4())
+    last_order = await db.orders.find({}, {"_id": 0, "order_number": 1}).sort("order_number", -1).limit(1).to_list(1)
+    order_number = (last_order[0]["order_number"] + 1) if last_order and "order_number" in last_order[0] else 100000
+
+    order_doc = {
+        "id": order_id,
+        "order_number": order_number,
+        "user_id": current_user["id"],
+        "user_name": current_user["name"],
+        "user_email": current_user["email"],
+        "phone": current_user.get("phone", ""),
+        "items": [],
+        "pickup_date": order_data.pickup_date,
+        "pickup_time": order_data.pickup_time,
+        "pickup_instruction": order_data.pickup_instruction,
+        "delivery_date": order_data.delivery_date,
+        "delivery_time": order_data.delivery_time,
+        "delivery_instruction": order_data.delivery_instruction,
+        "address": order_data.address,
+        "pin_code": order_data.pin_code,
+        "payment_method": "pending",
+        "payment_status": "awaiting_pricing",
+        "items_total": 0,
+        "promo_code": "",
+        "discount_amount": 0,
+        "delivery_charge": 0,
+        "total_amount": 0,
+        "customer_note": order_data.customer_note,
+        "status": "pending",
+        "order_type": "quick",
+        "pricing_status": "awaiting_assessment",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.orders.insert_one(order_doc)
+
+    try:
+        await send_quick_order_confirmation_email(order_doc, current_user["email"])
+    except Exception as e:
+        print(f"Failed to send quick order confirmation email: {e}")
+
+    try:
+        await send_quick_order_received_email(order_doc)
+    except Exception as e:
+        print(f"Failed to send quick order admin notification email: {e}")
+
+    try:
+        admin_docs = await db.users.find(
+            {"role": {"$in": ["business_admin", "platform_admin", "super_admin"]}},
+            {"_id": 0, "push_tokens": 1}
+        ).to_list(100)
+        admin_tokens = [t for doc in admin_docs for t in doc.get("push_tokens", [])]
+        await send_expo_push_notifications(
+            admin_tokens,
+            title=f"New Quick Order #{order_number}",
+            body=f"{current_user['name']} booked a Quick Order — needs assessment at pickup",
+            data={"order_id": order_id},
+        )
+    except Exception as e:
+        logger.error(f"Failed to send admin push notification for new quick order: {e}")
+
+    return {"order_id": order_id, "order_number": order_number, "status": "success"}
+
 @api_router.post("/admin/orders")
 async def create_manual_order(order_data: ManualOrderCreate, admin: dict = Depends(get_admin_user)):
     """Create an order on behalf of a WhatsApp (or walk-in) customer who has no account."""
@@ -949,6 +1037,96 @@ async def update_order_schedule(order_id: str, data: OrderScheduleUpdate, admin:
             print(f"Failed to send schedule update email: {e}")
 
     return {"status": "success"}
+
+@api_router.patch("/admin/orders/{order_id}/finalize-items")
+async def finalize_quick_order_items(order_id: str, data: QuickOrderFinalizeItems, admin: dict = Depends(get_admin_user)):
+    """Admin builds the real items list for a Quick Order after assessing the laundry at
+    pickup, computes the final price, and sends the customer a Stripe payment link."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("order_type") != "quick":
+        raise HTTPException(status_code=400, detail="Only Quick Orders can be finalized this way")
+    if order.get("status") == "drop_completed":
+        raise HTTPException(status_code=400, detail="Cannot finalize items — order has already been delivered")
+    if order.get("pricing_status") == "priced":
+        raise HTTPException(status_code=400, detail="Order has already been finalized")
+
+    items_total = sum(item.price * item.quantity for item in data.items)
+    promo_code = (data.promo_code or "").strip().upper()
+    discount_amount = 0
+    if promo_code:
+        promo_doc = await db.promo_codes.find_one({"code": promo_code, "active": True})
+        if promo_doc:
+            discount_amount = round(items_total * promo_doc["discount_percent"] / 100, 2)
+    after_discount = items_total - discount_amount
+    delivery_charge = 0 if after_discount >= 30 else 4.45
+    total_amount = round(after_discount + delivery_charge, 2)
+
+    update_fields = {
+        "items": [item.model_dump() for item in data.items],
+        "items_total": items_total,
+        "promo_code": promo_code,
+        "discount_amount": discount_amount,
+        "delivery_charge": delivery_charge,
+        "total_amount": total_amount,
+        "pricing_status": "priced",
+        "finalized_at": datetime.now(timezone.utc).isoformat(),
+        "payment_method": "stripe",
+        "payment_status": "pending",
+    }
+    await db.orders.update_one({"id": order_id}, {"$set": update_fields})
+    order.update(update_fields)
+
+    frontend_url = os.environ.get("FRONTEND_URL", "https://www.laundry-express.co.uk")
+    try:
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            customer_email=order.get("user_email"),
+            line_items=[{
+                "price_data": {
+                    "currency": "gbp",
+                    "unit_amount": int(round(total_amount * 100)),
+                    "product_data": {
+                        "name": f"Laundry Express Order #{order['order_number']}",
+                        "description": f"Pickup: {_format_display_date(order.get('pickup_date', ''))} · Delivery: {_format_display_date(order.get('delivery_date', ''))}",
+                    },
+                },
+                "quantity": 1,
+            }],
+            success_url=f"{frontend_url}/payment-success",
+            cancel_url=f"{frontend_url}/dashboard",
+            expires_at=int((datetime.now(timezone.utc) + timedelta(hours=24)).timestamp()),
+            metadata={"order_id": order_id, "order_number": str(order["order_number"])},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Stripe error: {str(e)}")
+
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"stripe_checkout_session_id": session.id, "payment_link_sent_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    order["stripe_checkout_session_id"] = session.id
+
+    if order.get("user_email"):
+        try:
+            await send_order_finalized_email(order, order["user_email"], session.url)
+        except Exception as e:
+            print(f"Failed to send order finalized email: {e}")
+
+    if order.get("phone"):
+        try:
+            msg = (
+                f"Hi {order.get('user_name', 'there')}, we've assessed your laundry for order #{order.get('order_number')}.\n\n"
+                f"Total: £{total_amount:.2f}\n\n"
+                f"Please pay using this secure link before we begin washing:\n{session.url}\n\n"
+                f"Thank you!"
+            )
+            send_whatsapp_to_customer(order["phone"], msg)
+        except Exception as e:
+            print(f"Failed to send WhatsApp finalized-order notification: {e}")
+
+    return {"status": "success", "total_amount": total_amount, "payment_url": session.url}
 
 @api_router.get("/admin/businesses")
 async def get_businesses(admin: dict = Depends(get_admin_user)):
